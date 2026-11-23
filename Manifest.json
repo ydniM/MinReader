@@ -1,9 +1,9 @@
 {
-  "id": "./",
+  "id": "/Mindy-s-Reader/",
   "name": "Mindy's Reader",
   "short_name": "Reader",
-  "start_url": "./",
-  "scope": "./",
+  "start_url": "/Mindy-s-Reader/",
+  "scope": "/Mindy-s-Reader/",
   "display": "standalone",
   "background_color": "#e6e1fb",
   "theme_color": "#dcc9f4",
