@@ -392,14 +392,16 @@ function unreadCounts() {
 // ---------- Views ----------
 
 let view = readJSON('reader-view', 'all');  // 'all', 'unread', 'bookmarks' or 'feed:<id>'
-let current = null;                       // the open post
+let current = null;
+let keptOpen = null; // the post opened from Unread on a computer, kept listed until you click away                       // the open post
 let shownCount = PAGE_SIZE;
 
 function postsForView() {
   if (view === 'bookmarks') return Object.values(state.bookmarks).sort((a, b) => b.saved - a.saved);
   const posts = livePosts();
-  // Read posts leave Unread right away (the open post stays open in the reader).
-  if (view === 'unread') return posts.filter((p) => !isRead(p.id));
+  // Read posts leave Unread. On a computer, the post you opened stays (highlighted)
+  // until you open another post or go to another list.
+  if (view === 'unread') return posts.filter((p) => !isRead(p.id) || p.id === keptOpen);
   if (view.startsWith('feed:')) { const id = view.slice(5); return posts.filter((p) => p.feed === id); }
   return posts;
 }
@@ -416,6 +418,7 @@ function setView(v, { push = true } = {}) {
   if (v.startsWith('feed:') && !feedsById.has(v.slice(5)) && !addingFeeds.has(v.slice(5))) v = 'all';
   view = v;
   writeJSON('reader-view', view);
+  keptOpen = null; // going to another list counts as clicking away
   shownCount = PAGE_SIZE;
   renderAll();
   $('#postScroll').scrollTop = 0;
@@ -607,6 +610,7 @@ async function openPost(id) {
   if (!post) return;
   const previous = current;
   current = post;
+  keptOpen = isPhone() ? null : id;
   document.querySelectorAll('.post.active').forEach((r) => r.classList.remove('active'));
   const row = document.querySelector(`.post[data-id="${CSS.escape(id)}"]`);
   if (row) row.classList.add('active');
