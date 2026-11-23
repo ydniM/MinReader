@@ -47,6 +47,10 @@
     {
       "title": "What The Fuck Just Happened Today?",
       "url": "https://whatthefuckjusthappenedtoday.com/rss.xml"
+    },
+    {
+      "title": "",
+      "url": "https://ydnim.github.io/MinMusic/feed.xml"
     }
   ]
 }
