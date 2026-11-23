@@ -61,6 +61,13 @@ def short_hash(text, length):
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:length]
 
 
+def web_url(url, base=""):
+    """Returns url as a full http(s) address, or "" for anything else
+    (like javascript: links), since links and images are used on the page."""
+    full = urljoin(base, (url or "").strip())
+    return full if urlparse(full).scheme in ("http", "https") else ""
+
+
 def feed_id(url):
     return short_hash(url.strip(), 8)
 
@@ -76,14 +83,15 @@ def clean_html(fragment, base_url):
 
     def fix_attr(tag, attr, value):
         if attr in URL_ATTRS:
-            return urljoin(base_url, value.strip()) if value else None
+            return urljoin(base_url, value.strip()) if value else None  # nh3 then drops unsafe schemes
         if attr == "srcset":
             parts = []
             for item in value.split(","):
                 bits = item.strip().split(None, 1)
                 if bits:
-                    bits[0] = urljoin(base_url, bits[0])
-                    parts.append(" ".join(bits))
+                    bits[0] = web_url(bits[0], base_url)
+                    if bits[0]:
+                        parts.append(" ".join(bits))
             return ", ".join(parts)
         return value
 
@@ -111,22 +119,22 @@ def entry_time(entry):
 
 def entry_image(entry, content, base_url):
     for thumb in entry.get("media_thumbnail") or []:
-        if thumb.get("url"):
-            return urljoin(base_url, thumb["url"])
+        if web_url(thumb.get("url"), base_url):
+            return web_url(thumb["url"], base_url)
     for media in entry.get("media_content") or []:
         kind = media.get("type", "") or media.get("medium", "")
-        if media.get("url") and ("image" in kind or re.search(r"\.(jpe?g|png|webp|gif)(\?|$)", media["url"], re.I)):
-            return urljoin(base_url, media["url"])
+        if web_url(media.get("url"), base_url) and ("image" in kind or re.search(r"\.(jpe?g|png|webp|gif)(\?|$)", media["url"], re.I)):
+            return web_url(media["url"], base_url)
     for link in entry.get("links") or []:
-        if link.get("rel") == "enclosure" and link.get("type", "").startswith("image") and link.get("href"):
-            return urljoin(base_url, link["href"])
+        if link.get("rel") == "enclosure" and link.get("type", "").startswith("image") and web_url(link.get("href"), base_url):
+            return web_url(link["href"], base_url)
     for match in re.finditer(r"<img\b[^>]*>", content or "", re.I):
         tag = match.group(0)
         if re.search(r"""\b(width|height)=["']?1["'\s/>]""", tag):
             continue  # tracking pixel
         src = re.search(r"""\bsrc=["']([^"']+)["']""", tag)
-        if src:
-            return urljoin(base_url, html.unescape(src.group(1)))
+        if src and web_url(html.unescape(src.group(1)), base_url):
+            return web_url(html.unescape(src.group(1)), base_url)
     return ""
 
 
@@ -260,20 +268,18 @@ def main():
             "id": fid,
             "title": feed.get("title") or old.get("title") or feed["url"],
             "url": feed["url"],
-            "site": old.get("site", ""),
+            "site": web_url(old.get("site")),
             "error": error or "",
             "lastSuccess": old.get("lastSuccess", 0),
         }
         if parsed is not None:
             info["lastSuccess"] = now
-            info["site"] = parsed.feed.get("link") or info["site"] or feed["url"]
+            info["site"] = web_url(parsed.feed.get("link"), feed["url"]) or info["site"] or feed["url"]
             if not feed.get("title") and parsed.feed.get("title"):
                 info["title"] = plain_text(parsed.feed["title"])
             for entry in parsed.entries:
-                link = urljoin(info["site"], entry.get("link") or "")
+                link = web_url(entry.get("link"), info["site"])
                 guid = entry.get("id") or link or (entry.get("title", "") + str(entry_time(entry)))
-                if not guid:
-                    continue
                 pid = short_hash(fid + "|" + guid, 14)
                 raw = entry_content(entry)
                 base = link or info["site"]
@@ -301,6 +307,8 @@ def main():
         kept = sorted((p for p in posts.values() if p["date"] >= cutoff), key=lambda p: -p["date"])
         kept = kept[:MAX_POSTS_PER_FEED]
         for post in kept:
+            post["link"] = web_url(post.get("link"))  # also cleans posts saved before links were checked
+            post["image"] = web_url(post.get("image"))
             out_posts.append(post)
             out_content[post["id"]] = content.get(post["id"], "")
         out_feeds.append(info)

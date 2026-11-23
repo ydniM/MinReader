@@ -7,6 +7,9 @@
    using the access key saved in this browser, so every device shows the same
    thing. */
 
+// The page holds the access key, so it refuses to run inside another site's frame.
+if (window.top !== window.self) throw new Error('Mindy’s Reader can’t run inside a frame.');
+
 // ---------- Settings ----------
 
 const DEV = readJSON('reader-dev', null); // only used for local testing
@@ -45,7 +48,20 @@ function ago(sec) {
 function fullDate(sec) {
   return new Date(sec * 1000).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
+// "just now", "5 min ago" or "on Nov 3", to follow words like "Updated".
+function agoPhrase(sec) {
+  const d = nowSec() - sec;
+  return d < 60 ? 'just now' : d < 7 * 86400 ? ago(sec) + ' ago' : 'on ' + ago(sec);
+}
 function hostOf(url) { try { return new URL(url).hostname; } catch { return ''; } }
+// Only web addresses are used as links or images. Anything else (like a
+// javascript: link in someone's feed) could run code next to the access key.
+function webUrl(url) {
+  try { return /^https?:$/.test(new URL(url).protocol) ? url : ''; } catch { return ''; }
+}
+function openLink(url) {
+  if (webUrl(url)) window.open(url, '_blank', 'noopener,noreferrer');
+}
 
 function faviconHTML(feed, cls = 'favicon') {
   const host = hostOf(feed.site) || hostOf(feed.url);
@@ -79,7 +95,7 @@ async function gh(path, options = {}) {
     ...options,
     cache: 'no-store',
     headers: {
-      Accept: 'application/vnd.github+json',
+      Accept: options.raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json',
       Authorization: `Bearer ${token}`,
       'X-GitHub-Api-Version': '2022-11-28',
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
@@ -90,6 +106,7 @@ async function gh(path, options = {}) {
     try { msg = (await res.json()).message || msg; } catch { /* not JSON */ }
     throw new GitHubError(res.status, msg);
   }
+  if (options.raw) return res.text();
   return res.status === 204 ? null : res.json();
 }
 
@@ -110,6 +127,8 @@ function fromBase64(b64) {
 async function getFile(path) {
   try {
     const data = await gh(`contents/${encodeURI(path)}`);
+    // GitHub leaves out the text of files over 1 MB, so those are downloaded on their own.
+    if (data.encoding === 'none' && data.size > 0) return { text: await gh(`contents/${encodeURI(path)}`, { raw: true }), sha: data.sha };
     return { text: fromBase64(data.content || ''), sha: data.sha };
   } catch (err) {
     if (err.status === 404) return null;
@@ -140,6 +159,7 @@ let state = applyAll(saved, pending);
 let syncStatus = 'ok';
 let saveTimer = null;
 let saving = false;
+let saveCount = 0; // goes up with every save, so an older copy loaded meanwhile is ignored
 
 function applyOp(s, op) {
   if (op.op === 'read') for (const id of op.ids) s.read[id] = op.t;
@@ -188,8 +208,10 @@ async function saveNow() {
   saving = true;
   syncStatus = 'saving';
   showSync();
+  let conflicts = 0;
   try {
-    for (let attempt = 0; attempt < 4 && pending.length; attempt++) {
+    // Keeps going while changes are waiting, including ones made during a save.
+    while (pending.length) {
       const batch = pending.slice();
       // Bookmarked posts' text is saved as its own file first.
       for (const op of batch) {
@@ -211,8 +233,8 @@ async function saveNow() {
       try {
         await putFile('State.json', JSON.stringify(next), remote && remote.sha, 'Update reading progress');
       } catch (err) {
-        if (err.status === 409 || err.status === 422) { // another device saved first: reload and try again
-          await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+        if ((err.status === 409 || err.status === 422) && ++conflicts < 5) { // another device saved first: reload and try again
+          await new Promise((r) => setTimeout(r, 800 * conflicts));
           continue;
         }
         throw err;
@@ -220,9 +242,13 @@ async function saveNow() {
       pending.splice(0, batch.length);
       writeJSON('reader-pending', pending);
       saved = next;
+      saveCount++;
       writeJSON('reader-saved', saved);
     }
-    syncStatus = pending.length ? 'error' : 'ok';
+    syncStatus = 'ok';
+    // Shows anything another device saved in the meantime.
+    const merged = applyAll(saved, pending);
+    if (JSON.stringify(merged) !== JSON.stringify(state)) { state = merged; renderAll(); }
   } catch (err) {
     syncStatus = err.status === 401 || err.status === 403 || err.status === 404 ? 'denied' : 'error';
     console.error('Saving failed', err);
@@ -235,14 +261,21 @@ async function saveNow() {
 // Loads the latest progress saved by any device.
 async function loadState() {
   if (!token) return;
+  const countBefore = saveCount;
   try {
     const remote = await getFile('State.json');
-    saved = remote ? JSON.parse(remote.text) : emptyState();
-    saved.read = saved.read || {};
-    saved.bookmarks = saved.bookmarks || {};
+    // A save that finished meanwhile already has a newer copy than this one.
+    if (saving || saveCount !== countBefore) return;
+    const fresh = remote ? JSON.parse(remote.text) : emptyState();
+    fresh.read = fresh.read || {};
+    fresh.bookmarks = fresh.bookmarks || {};
+    for (const b of Object.values(fresh.bookmarks)) { b.link = webUrl(b.link); b.image = webUrl(b.image); }
+    const wasDenied = syncStatus === 'denied';
+    if (wasDenied) syncStatus = 'ok';
+    if (JSON.stringify(fresh) === JSON.stringify(saved) && !wasDenied) return; // nothing new: don't redraw
+    saved = fresh;
     writeJSON('reader-saved', saved);
     state = applyAll(saved, pending);
-    if (syncStatus === 'denied') syncStatus = 'ok';
     renderAll();
   } catch (err) {
     if (err.status === 401 || err.status === 403 || err.status === 404) { syncStatus = 'denied'; showSync(); }
@@ -270,12 +303,17 @@ let postsLoadError = '';
 const contentCache = new Map(); // shard prefix -> { id: html }
 
 async function loadPosts() {
+  const errorBefore = postsLoadError;
+  let changed = !index;
   try {
     const res = await fetch(`data/index.json?t=${Date.now()}`, { cache: 'no-store' });
     if (res.status === 404) throw new Error('first');
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
     if (!index || data.updated !== index.updated) {
+      changed = true;
+      for (const f of data.feeds) f.site = webUrl(f.site);
+      for (const p of data.posts) { p.link = webUrl(p.link); p.image = webUrl(p.image); }
       index = data;
       feedsById = new Map(index.feeds.map((f) => [f.id, f]));
       postsById = new Map(index.posts.map((p) => [p.id, p]));
@@ -283,26 +321,31 @@ async function loadPosts() {
       for (const id of [...addingFeeds.keys()]) if (index.feeds.some((f) => f.url === addingFeeds.get(id).url)) addingFeeds.delete(id);
       for (const url of [...removingFeeds]) if (!index.feeds.some((f) => f.url === url)) removingFeeds.delete(url);
     }
-    applyFeedEdits();
+    if (applyFeedEdits()) changed = true;
     postsLoadError = '';
   } catch (err) {
     postsLoadError = err.message === 'first'
       ? 'No posts yet. The first update runs a few minutes after setup, so check back soon.'
       : 'The posts couldn’t be loaded. Check your internet connection, then press the refresh button at the top.';
   }
-  renderAll();
+  // Only redraws when something changed, so the list doesn't jump while you read.
+  if (changed || postsLoadError !== errorBefore) renderAll(); else showUpdated();
 }
 
 async function postContent(post) {
   if (postsById.has(post.id)) {
-    const prefix = post.id.slice(0, 2);
-    if (!contentCache.has(prefix)) {
-      const res = await fetch(`data/content/${prefix}.json?v=${index.updated}`);
-      if (!res.ok) throw new Error('content');
-      contentCache.set(prefix, await res.json());
+    try {
+      const prefix = post.id.slice(0, 2);
+      if (!contentCache.has(prefix)) {
+        const res = await fetch(`data/content/${prefix}.json?v=${index.updated}`);
+        if (!res.ok) throw new Error('content');
+        contentCache.set(prefix, await res.json());
+      }
+      const html = contentCache.get(prefix)[post.id];
+      if (html != null) return html;
+    } catch (err) {
+      if (!state.bookmarks[post.id]) throw err; // a bookmarked post can still use its saved copy below
     }
-    const html = contentCache.get(prefix)[post.id];
-    if (html != null) return html;
   }
   // A bookmarked post that has left the reader: use the copy saved on GitHub.
   const pendingOp = pending.find((op) => op.op === 'bookmark' && op.post.id === post.id && op.html != null);
@@ -315,14 +358,14 @@ async function postContent(post) {
 const isRead = (id) => id in state.read;
 const feedOf = (post) => feedsById.get(post.feed) || { id: post.feed, title: post.feedTitle || 'Removed feed', site: post.feedSite || '', url: '' };
 
-function visibleFeeds() {
+function visibleFeeds(counts = unreadCounts()) {
   const list = (index ? index.feeds.filter((f) => !removingFeeds.has(f.url)) : []).concat([...addingFeeds.values()]);
   const byName = (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
   const sort = state.feedSort || 'az';
   if (sort === 'za') return list.sort((a, b) => byName(b, a));
   if (sort === 'most' || sort === 'fewest') {
-    const n = new Map(list.map((f) => [f.id, unreadCount(f.id)]));
-    return list.sort((a, b) => (sort === 'most' ? n.get(b.id) - n.get(a.id) : n.get(a.id) - n.get(b.id)) || byName(a, b));
+    const n = (f) => counts.get(f.id) || 0;
+    return list.sort((a, b) => (sort === 'most' ? n(b) - n(a) : n(a) - n(b)) || byName(a, b));
   }
   if (sort === 'custom') {
     // Feeds you haven't placed yet (like a new one) go at the end.
@@ -335,10 +378,15 @@ function livePosts() {
   if (!index) return [];
   return index.posts.filter((p) => !removingFeeds.has(feedOf(p).url));
 }
-function unreadCount(feedId) {
-  let n = 0;
-  for (const p of livePosts()) if ((!feedId || p.feed === feedId) && !isRead(p.id)) n++;
-  return n;
+// Unread posts per feed id, plus the total under ''.
+function unreadCounts() {
+  const counts = new Map([['', 0]]);
+  for (const p of livePosts()) {
+    if (isRead(p.id)) continue;
+    counts.set(p.feed, (counts.get(p.feed) || 0) + 1);
+    counts.set('', counts.get('') + 1);
+  }
+  return counts;
 }
 
 // ---------- Views ----------
@@ -383,18 +431,23 @@ function renderAll() {
   renderPosts();
   renderReaderBar();
   showSync();
-  $('#updated').textContent = index ? 'Updated ' + ago(index.updated) + (nowSec() - index.updated < 60 ? '' : ' ago') : '';
+  showUpdated();
+}
+
+function showUpdated() {
+  $('#updated').textContent = index ? 'Updated ' + agoPhrase(index.updated) : '';
 }
 
 function renderFeeds() {
   if (dragging) { feedsNeedRender = true; return; }
-  const total = unreadCount();
+  const counts = unreadCounts();
+  const total = counts.get('');
   document.querySelector('[data-count="all"]').textContent = '';
   document.querySelector('[data-count="unread"]').textContent = total || '';
   document.querySelector('[data-count="bookmarks"]').textContent = Object.keys(state.bookmarks).length || '';
   document.querySelectorAll('.view-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  const list = visibleFeeds().map((f) => {
-    const n = addingFeeds.has(f.id) ? 0 : unreadCount(f.id);
+  const list = visibleFeeds(counts).map((f) => {
+    const n = addingFeeds.has(f.id) ? 0 : counts.get(f.id) || 0;
     const warn = f.error ? `<span class="warn-dot" title="${esc(f.error)}">!</span>` : '';
     const extra = addingFeeds.has(f.id) ? '<span class="count">adding…</span>' : `<span class="count">${n || ''}</span>`;
     return `<li data-feed="${esc(f.id)}"><button class="feed-item${view === 'feed:' + f.id ? ' active' : ''}${n ? ' has-unread' : ''}" data-feed="${esc(f.id)}">
@@ -408,12 +461,12 @@ function postRowHTML(p) {
   const cls = view === 'bookmarks' ? '' : isRead(p.id) ? ' read' : ' unread';
   const bm = state.bookmarks[p.id] && view !== 'bookmarks'
     ? '<svg class="bm" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg>' : '';
-  const thumb = p.image ? `<img class="thumb" src="${esc(p.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '';
+  const thumb = webUrl(p.image) ? `<img class="thumb" src="${esc(p.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '';
   const read = isRead(p.id), marked = !!state.bookmarks[p.id];
   const actions = `<span class="post-actions">
     ${postsById.has(p.id) ? `<button data-act="read" title="${read ? 'Mark as unread' : 'Mark as read'}"><svg viewBox="0 0 24 24">${read ? ICONS.circle : ICONS.check}</svg></button>` : ''}
     <button data-act="bookmark" class="${marked ? 'on' : ''}" title="${marked ? 'Remove bookmark' : 'Bookmark'}"><svg viewBox="0 0 24 24">${ICONS.bookmark}</svg></button>
-    ${p.link ? `<button data-act="open" title="Open original"><svg viewBox="0 0 24 24">${ICONS.open}</svg></button>` : ''}</span>`;
+    ${webUrl(p.link) ? `<button data-act="open" title="Open original"><svg viewBox="0 0 24 24">${ICONS.open}</svg></button>` : ''}</span>`;
   return `<li class="post${cls}${current && current.id === p.id ? ' active' : ''}" data-id="${esc(p.id)}">
     <div class="txt"><div class="t">${esc(p.title)}</div>${p.summary ? `<div class="s">${esc(p.summary)}</div>` : ''}
     <div class="m">${faviconHTML(f)}<span class="fname">${esc(f.title)}</span><span class="ago">· ${ago(p.date)}</span>${bm}</div></div>${thumb}${actions}</li>`;
@@ -438,7 +491,7 @@ function renderPosts() {
 
   const problem = $('#feedProblem');
   if (feed && feed.error) {
-    const last = feed.lastSuccess ? ` It last worked ${ago(feed.lastSuccess)}${nowSec() - feed.lastSuccess < 7 * 86400 ? ' ago' : ''}.` : ' It hasn’t worked yet.';
+    const last = feed.lastSuccess ? ` It last worked ${agoPhrase(feed.lastSuccess)}.` : ' It hasn’t worked yet.';
     problem.innerHTML = `<b>This feed had a problem on the last check.</b> ${esc(feed.error)}${esc(last)}`;
     problem.hidden = false;
   } else if (isFeed && addingFeeds.has(view.slice(5))) {
@@ -451,7 +504,7 @@ function renderPosts() {
     empty.textContent = postsLoadError;
   } else if (!posts.length) {
     empty.innerHTML = view === 'unread' ? '<div class="big"><svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg></div>You’re all caught up.'
-      : view === 'bookmarks' ? '<div class="big"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg></div>No bookmarks yet. Open a post and press Bookmark to save it here.'
+      : view === 'bookmarks' ? '<div class="big"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg></div>No bookmarks yet.'
       : index ? 'No posts from the last 30 days.' : 'Loading…';
   }
   empty.hidden = !(postsLoadError && view !== 'bookmarks') && posts.length > 0;
@@ -483,7 +536,7 @@ function renderReaderBar() {
   bmBtn.classList.toggle('on', marked);
   setLabel(bmBtn, marked ? 'Bookmarked' : 'Bookmark', marked ? 'Saved' : 'Save');
   bmBtn.title = marked ? 'Remove bookmark' : 'Bookmark';
-  if (current.link) { openBtn.href = current.link; openBtn.removeAttribute('aria-disabled'); }
+  if (webUrl(current.link)) { openBtn.href = current.link; openBtn.removeAttribute('aria-disabled'); }
   else { openBtn.setAttribute('aria-disabled', 'true'); openBtn.removeAttribute('href'); }
 }
 
@@ -558,36 +611,36 @@ async function openPost(id) {
   renderReaderBar();
   showPane('post');
 
-  const frame = $('#readerFrame');
   $('#readerEmpty').hidden = true;
-  frame.hidden = false;
   const myOpen = ++openToken;
-  frame.srcdoc = frameHTML(post, '<p class="note">Loading…</p>');
+  showInFrame(frameHTML(post, '<p class="note">Loading…</p>'));
   let body;
   try { body = await postContent(post); }
   catch { body = '<p class="note">This post’s text couldn’t be loaded. Press Open original to read it on the website.</p>'; }
   if (myOpen !== openToken) return;
   if (!body.trim()) body = '<p class="note">This feed doesn’t include the post’s text. Press Open original to read it on the website.</p>';
-  frame.srcdoc = frameHTML(post, body);
+  showInFrame(frameHTML(post, body));
+}
+
+// Swaps in a new frame each time. Changing a frame's text in place adds a
+// browser history entry, so the phone's back gesture would step through the
+// post's loading screen instead of going back a column.
+function showInFrame(html) {
+  const old = $('#readerFrame');
+  const frame = old.cloneNode(false);
+  frame.removeAttribute('srcdoc');
+  frame.srcdoc = html;
+  frame.hidden = false;
+  old.replaceWith(frame);
 }
 
 function frameHTML(post, body) {
   const f = feedOf(post);
   const meta = [f.title, post.author, fullDate(post.date)].filter(Boolean).map((t) => `<span>${esc(t)}</span>`).join('');
-  const title = post.link ? `<a class="title" href="${esc(post.link)}">${esc(post.title)}</a>` : `<div class="title">${esc(post.title)}</div>`;
+  const title = webUrl(post.link) ? `<a class="title" href="${esc(post.link)}">${esc(post.title)}</a>` : `<div class="title">${esc(post.title)}</div>`;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"><meta name="referrer" content="no-referrer">
     <meta name="viewport" content="width=device-width, initial-scale=1"><style>${FRAME_CSS}</style></head>
     <body><article>${title}<div class="meta">${meta}</div>${body}</article></body></html>`;
-}
-
-function closeReader() {
-  current = null;
-  openToken++;
-  $('#readerFrame').hidden = true;
-  $('#readerFrame').srcdoc = '';
-  $('#readerEmpty').hidden = false;
-  document.querySelectorAll('.post.active').forEach((r) => r.classList.remove('active'));
-  renderReaderBar();
 }
 
 // ---------- Phone panes ----------
@@ -635,7 +688,7 @@ $('#postList').addEventListener('click', (e) => {
     if (!post) return;
     if (act.dataset.act === 'read') toggleRead(id);
     else if (act.dataset.act === 'bookmark') toggleBookmark(post);
-    else if (act.dataset.act === 'open') window.open(post.link, '_blank', 'noopener');
+    else if (act.dataset.act === 'open') openLink(post.link);
     return;
   }
   const row = e.target.closest('.post');
@@ -668,26 +721,34 @@ function toggleRead(id) {
 $('#readBtn').addEventListener('click', () => { if (current) toggleRead(current.id); });
 
 $('#bookmarkBtn').addEventListener('click', () => { if (current) toggleBookmark(current); });
+const bookmarking = new Set(); // posts whose text is still loading, so a double click adds one bookmark
 async function toggleBookmark(post) {
-  if (state.bookmarks[post.id]) {
+  if (bookmarking.has(post.id)) return;
+  const old = state.bookmarks[post.id];
+  if (old) {
+    // Keeps the text before its saved copy is deleted, so Undo can put it back.
+    const text = postContent(old).catch(() => '');
     change({ op: 'unbookmark', id: post.id });
-    toast('Bookmark removed.', () => { addBookmark(post); });
+    toast('Bookmark removed.', async () => { if (!state.bookmarks[old.id]) addBookmark(old, await text); });
+    if (view === 'bookmarks') renderPosts(); else refreshRow(post.id);
+    refreshCounts();
+    renderReaderBar();
   } else {
     await addBookmark(post);
   }
-  if (view === 'bookmarks') renderPosts(); else refreshRow(post.id);
-  refreshCounts();
-  renderReaderBar();
 }
 
-async function addBookmark(post) {
-  let html = '';
-  try { html = await postContent(post); } catch { /* the text couldn't be loaded; the bookmark still works with Open original */ }
+async function addBookmark(post, html) {
+  if (html == null) {
+    bookmarking.add(post.id);
+    try { html = await postContent(post); } catch { html = ''; /* the bookmark still works with Open original */ }
+    bookmarking.delete(post.id);
+  }
   const f = feedOf(post);
   const copy = {
     id: post.id, feed: post.feed, feedTitle: f.title, feedSite: f.site || f.url || '',
     title: post.title, link: post.link, author: post.author || '', date: post.date,
-    summary: post.summary || '', image: post.image || '', saved: nowSec(),
+    summary: post.summary || '', image: post.image || '', saved: post.saved || nowSec(),
   };
   change({ op: 'bookmark', post: copy, html });
   if (view === 'bookmarks') renderPosts(); else refreshRow(post.id);
@@ -735,6 +796,11 @@ $('#refreshBtn').addEventListener('click', async () => {
   btn.classList.remove('spinning');
   refreshing = false;
   if (index && index.updated !== before) toast('Your feeds are up to date.');
+  else {
+    // GitHub is slow today. Keeps looking every 30 seconds for a while.
+    fastCheckUntil = Date.now() + 10 * 60e3;
+    toast('The check is taking longer than usual. New posts will show up on their own.');
+  }
 });
 
 // ---------- Toast ----------
@@ -753,7 +819,7 @@ function toast(text, undo) {
 
 // ---------- Dialogs ----------
 
-function openModal({ title, body, actions, onOpen }) {
+function openModal({ title, body, actions, onOpen, wide }) {
   $('#modalTitle').textContent = title;
   $('#modalBody').innerHTML = body;
   const box = $('#modalActions');
@@ -765,7 +831,7 @@ function openModal({ title, body, actions, onOpen }) {
     b.addEventListener('click', a.onClick);
     box.appendChild(b);
   }
-  $('.sheet').classList.toggle('setup', !!onOpen && title.includes('access key'));
+  $('.sheet').classList.toggle('wide', !!wide);
   $('#modal').classList.add('show');
   if (onOpen) onOpen();
 }
@@ -807,11 +873,13 @@ function showKeySetup() {
       { label: 'Save key', cls: 'primary', onClick: saveKey },
     ],
     onOpen: () => setTimeout(() => $('#keyInput').focus(), 50),
+    wide: true,
   });
   $('#keyInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveKey(); });
 }
 
 async function saveKey() {
+  if ($('#modalActions .primary').disabled) return; // already checking
   const input = $('#keyInput');
   const err = $('#keyError');
   const value = input.value.trim();
@@ -880,6 +948,7 @@ function showAddFeed() {
 }
 
 async function addFeed() {
+  if ($('#modalActions .primary').disabled) return; // already adding
   const err = $('#feedError');
   let url = $('#feedUrl').value.trim();
   const title = $('#feedName').value.trim();
@@ -990,7 +1059,7 @@ function feedMenu(feed) {
     { label: 'Mark feed as read', icon: 'readall', disabled: !posts.some((p) => !isRead(p.id)), onClick: () => markRead(posts) },
     { label: 'Rename or change address', icon: 'edit', onClick: () => editFeed(feed) },
   ];
-  if (feed.site) items.push({ label: 'Open website', icon: 'open', onClick: () => window.open(feed.site, '_blank', 'noopener') });
+  if (webUrl(feed.site)) items.push({ label: 'Open website', icon: 'open', onClick: () => openLink(feed.site) });
   items.push('-', { label: 'Remove feed', icon: 'trash', danger: true, onClick: () => removeFeed(feed) });
   return items;
 }
@@ -998,7 +1067,7 @@ function postMenu(post) {
   const items = [];
   if (postsById.has(post.id)) items.push({ label: isRead(post.id) ? 'Mark as unread' : 'Mark as read', icon: isRead(post.id) ? 'circle' : 'check', onClick: () => toggleRead(post.id) });
   items.push({ label: state.bookmarks[post.id] ? 'Remove bookmark' : 'Bookmark', icon: 'bookmark', onClick: () => toggleBookmark(post) });
-  if (post.link) items.push({ label: 'Open original', icon: 'open', onClick: () => window.open(post.link, '_blank', 'noopener') });
+  if (webUrl(post.link)) items.push({ label: 'Open original', icon: 'open', onClick: () => openLink(post.link) });
   return items;
 }
 function viewMenu(v) {
@@ -1023,7 +1092,7 @@ $('#moreFeedBtn').addEventListener('click', (e) => {
 
 function setSort(sort) {
   // Switching to custom order for the first time starts from the order shown now.
-  if (sort === 'custom' && !(state.feedOrder || []).length) change({ op: 'order', ids: visibleFeeds().map((f) => f.id) });
+  if (sort === 'custom' && !(state.feedOrder || []).length) change({ op: 'order', ids: visibleFeeds().map((f) => f.id).filter((id) => !addingFeeds.has(id)) });
   change({ op: 'sort', sort });
   renderFeeds();
 }
@@ -1158,7 +1227,7 @@ document.addEventListener('contextmenu', (e) => {
 function startDrag() {
   const li = press.el;
   const list = $('#feedList');
-  dragging = { li, startOrder: [...list.children].map((x) => x.dataset.feed).join(',') };
+  dragging = { li, startOrder: listedFeedIds().join(',') };
   clearTimeout(press.timer);
   try { li.setPointerCapture(press.id); } catch { /* the pointer already ended */ }
   li.classList.remove('held');
@@ -1188,12 +1257,17 @@ function autoScroll() {
   if (step) { list.scrollTop += step; moveDragged(y); }
 }
 
+// The feed ids in the order shown, leaving out feeds that are still being added.
+function listedFeedIds() {
+  return [...$('#feedList').children].map((x) => x.dataset.feed).filter((id) => id && !addingFeeds.has(id));
+}
+
 function finishDrag() {
   const { li, startOrder, scroller } = dragging;
   clearInterval(scroller);
   li.classList.remove('dragging');
   $('#feedList').classList.remove('sorting');
-  const ids = [...$('#feedList').children].map((x) => x.dataset.feed).filter(Boolean);
+  const ids = listedFeedIds();
   dragging = null;
   const moved = ids.join(',') !== startOrder;
   if (moved) {
@@ -1211,13 +1285,26 @@ const WIDTH_LIMITS = { w1: [180, 480], w2: [260, 760] };
 const READ_MIN = 380;
 let widths = readJSON('reader-widths', {});
 
+// On a smaller window, saved widths shrink (without being saved) so the
+// reading column keeps its room.
 function applyWidths() {
   const layout = $('#layout');
+  const shown = { ...widths };
+  if (shown.w1 && shown.w2) {
+    const room = layout.clientWidth - 4 * 14 - READ_MIN;
+    const over = shown.w1 + shown.w2 - room;
+    if (over > 0) {
+      const cut2 = Math.min(over, shown.w2 - WIDTH_LIMITS.w2[0]);
+      shown.w2 -= Math.max(0, cut2);
+      shown.w1 -= Math.max(0, Math.min(over - Math.max(0, cut2), shown.w1 - WIDTH_LIMITS.w1[0]));
+    }
+  }
   for (const key of ['w1', 'w2']) {
-    if (widths[key]) layout.style.setProperty('--' + key, widths[key] + 'px');
+    if (shown[key]) layout.style.setProperty('--' + key, shown[key] + 'px');
     else layout.style.removeProperty('--' + key);
   }
 }
+window.addEventListener('resize', () => applyWidths());
 document.querySelectorAll('.gutter').forEach((g) => {
   const key = g.dataset.col;
   g.addEventListener('pointerdown', (e) => {
@@ -1266,14 +1353,18 @@ applyWidths();
 
 const feedEdits = new Map(); // feed id -> { title, url }
 
+// Returns true if it changed anything shown.
 function applyFeedEdits() {
+  let changed = false;
   for (const [id, edit] of [...feedEdits]) {
     const f = feedsById.get(id);
     if (!f) continue;
-    if (f.url === edit.url && (!edit.title || f.title === edit.title) && f.lastSuccess > edit.at) { feedEdits.delete(id); continue; }
-    if (edit.title) f.title = edit.title;
-    if (f.url !== edit.url) { f.url = edit.url; f.error = ''; }
+    // Once an update made after the edit includes it, the edit is no longer needed.
+    if (index.updated > edit.at && f.url === edit.url && f.title === edit.title) { feedEdits.delete(id); continue; }
+    if (edit.title && f.title !== edit.title) { f.title = edit.title; changed = true; }
+    if (f.url !== edit.url) { f.url = edit.url; f.error = ''; changed = true; }
   }
+  return changed;
 }
 
 function editFeed(feed) {
@@ -1293,6 +1384,7 @@ function editFeed(feed) {
 }
 
 async function saveFeedEdit(feed) {
+  if ($('#modalActions .primary').disabled) return; // already saving
   const err = $('#editError');
   const title = $('#editName').value.trim();
   let url = $('#editUrl').value.trim();
@@ -1342,7 +1434,7 @@ function checkForUpdates(force) {
   if ((force || now - lastStateCheck > CHECK_STATE_EVERY) && !saving && !pending.length) { lastStateCheck = now; loadState(); }
 }
 setInterval(() => checkForUpdates(false), 15e3);
-setInterval(() => { if (index) $('#updated').textContent = 'Updated ' + ago(index.updated) + (nowSec() - index.updated < 60 ? '' : ' ago'); }, 60e3);
+setInterval(showUpdated, 60e3);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { if (pending.length) { clearTimeout(saveTimer); saveNow(); } }
   else checkForUpdates(true);

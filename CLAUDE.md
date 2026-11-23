@@ -25,7 +25,13 @@ she asks.
   post ids, read marks and custom order position stay the same.
 - Commits to `State.json` and `Bookmarks/` don't trigger the workflow (`paths-ignore`).
 - Post text is shown in a sandboxed iframe (no scripts, no same-origin) on top of the
-  server-side sanitizing, because the page holds the access key.
+  server-side sanitizing, because the page holds the access key. Each post gets a new
+  iframe (`showInFrame`), because changing `srcdoc` in place adds a history entry and breaks
+  the phone's back gesture.
+- Only http(s) addresses are used for post links, feed websites and images (`web_url` in
+  Python, `webUrl`/`openLink` in Reader.js), since a `javascript:` link opened from the page
+  could read the key. index.html has a Content Security Policy (scripts from the site only,
+  GitHub API for saving), and the page won't run inside another site's frame.
 - Interaction: feeds are dragged directly (mouse: press and move 5px; phone: hold 420ms then
   slide). Right-click (phone: hold and release) opens a menu on feeds, posts, All posts and
   Unread. The feed view's ⋯ button opens the same feed menu. Sorting is a quiet "Sort"

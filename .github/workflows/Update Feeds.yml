@@ -6,10 +6,12 @@ on:
   workflow_dispatch:          # adds a "Run workflow" button so you can run it any time
   push:
     branches: [main]
-    paths-ignore:             # runs after any change except your reading progress and bookmarks
+    paths-ignore:             # runs after any change except reading progress, bookmarks and notes
       - "State.json"
       - "Bookmarks/**"
       - "README.md"
+      - "CLAUDE.md"
+      - ".gitignore"
 
 permissions:
   contents: read
