@@ -42,8 +42,9 @@ she asks.
 - Column widths: drag the gaps between columns; double-click a gap to reset. Saved per device
   in localStorage (`reader-widths`), not synced.
 - Opening a post marks it read. Nothing is auto-selected when a list opens. In the Unread
-  view, read posts leave the list right away (like Feeder). On a computer the open post stays
-  listed until another one is opened. Marking one read with its check button shows Undo.
+  view, read posts leave the list (like Feeder). On a computer the post she opened stays
+  listed (`keptOpen`) until she opens another post or goes to another list; on a phone it's
+  gone when she goes back. Marking one read with its check button shows Undo.
 - Under 800px wide it shows one column at a time; each step deeper is a history entry so the
   phone's back gesture works.
 
