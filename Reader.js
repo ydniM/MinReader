@@ -606,6 +606,9 @@ window.addEventListener('popstate', (e) => {
   $('#layout').dataset.pane = (e.state && e.state.pane) || 'feeds';
 });
 history.replaceState({ pane: 'feeds' }, '');
+// On a phone, open straight to the list you were last looking at (like
+// Unread). The back gesture still goes to the feed list.
+if (isPhone()) showPane('posts');
 
 // ---------- Actions ----------
 
