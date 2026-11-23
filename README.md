@@ -2,7 +2,7 @@
 
 My RSS reader. GitHub checks the feeds every 30 minutes and hosts the page.
 
-**Address:** https://ydnim.github.io/Mindy-s-Reader/
+**Address:** https://ydnim.github.io/MinReader/
 
 ## New device
 

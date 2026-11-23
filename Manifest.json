@@ -1,9 +1,9 @@
 {
-  "id": "/Mindy-s-Reader/",
+  "id": "/MinReader/",
   "name": "MinReader",
   "short_name": "MinReader",
-  "start_url": "/Mindy-s-Reader/",
-  "scope": "/Mindy-s-Reader/",
+  "start_url": "/MinReader/",
+  "scope": "/MinReader/",
   "display": "standalone",
   "background_color": "#e6e1fb",
   "theme_color": "#dcc9f4",
