@@ -59,7 +59,7 @@ def item(title, link, hours_ago, html="", guid=None, extra=""):
 def write_feeds(folder):
     os.makedirs(folder)
     cozy = [item(f"Cozy post {n}", f"https://cozy.example/post-{n}", n,
-                 f'<p>Cozy text {n}. <a href="/relative-{n}">relative link</a></p><img src="https://cozy.example/pic-{n}.jpg">')
+                 f'<p>Cozy text {n}. <a href="/relative-{n}">relative link</a></p><img src="{ORIGIN}/feeds/Photo.png?{n}">')
             for n in range(1, 6)]
     files = {
         "Cozy.xml": rss("Cozy Blog", "https://cozy.example/", cozy),
@@ -82,6 +82,13 @@ def write_feeds(folder):
     for name, text in files.items():
         with open(os.path.join(folder, name), "w", encoding="utf-8") as handle:
             handle.write(text)
+    # A small striped photo for thumbnails, served locally.
+    from PIL import Image
+    photo = Image.new("RGB", (120, 120))
+    for x in range(120):
+        for y in range(120):
+            photo.putpixel((x, y), (60 + x, 90 + (y // 20) * 25, 200 - x))
+    photo.save(os.path.join(folder, "Photo.png"))
 
 
 def published_files():
@@ -212,7 +219,7 @@ def test_python_build(site):
     check("python: srcset keeps only the web address", "https://ok.example/a.jpg 2x" in content[evil["id"]], content[evil["id"]])
     cozy = next(p for p in data["posts"] if p["title"] == "Cozy post 1")
     check("python: relative links become full addresses", "https://cozy.example/relative-1" in content[cozy["id"]])
-    check("python: the feed image becomes the thumbnail", cozy["image"] == "https://cozy.example/pic-1.jpg", cozy["image"])
+    check("python: the feed image becomes the thumbnail", cozy["image"] == f"{ORIGIN}/feeds/Photo.png?1", cozy["image"])
     check("python: a title with < and > keeps its text", any(p["title"] == "Math: a < b and c > d" for p in data["posts"]),
           [p["title"] for p in data["posts"] if p["title"].startswith("Math")])
     check("python: a web page's advertised feed is found", "Found Through Page" in feeds)
@@ -257,6 +264,7 @@ def test_desktop_basics(browser):
     check("desktop: post frame has no script or javascript:", "<script" not in body and "javascript:" not in body.lower())
     page.frame_locator("#readerFrame").locator("text=Hi").wait_for()
     page.wait_for_timeout(300)
+    row(page, "Cozy post 1").hover()
     shot(page, "Desktop")
     check("desktop: no page errors", not page.errors, page.errors)
     ctx.close()
@@ -325,6 +333,14 @@ def test_desktop_unread_rules(browser):
     page.click('[data-view="all"]')
     page.click('[data-view="unread"]')
     check("desktop: opened posts leave Unread after going to another list", row(page, "Cozy post 4").count() == 0 and row(page, "Cozy post 5").count() == 0)
+    thumb_row = row(page, "Cozy post 1")
+    height = thumb_row.bounding_box()["height"]
+    thumb_row.hover()
+    acts, thumb = thumb_row.locator(".post-actions").bounding_box(), thumb_row.locator(".thumb").bounding_box()
+    check("desktop: hover buttons don't change the post's height", abs(thumb_row.bounding_box()["height"] - height) < 0.5, (height, thumb_row.bounding_box()["height"]))
+    check("desktop: hover buttons sit below the photo", acts["y"] >= thumb["y"] + thumb["height"], (acts, thumb))
+    check("desktop: hover buttons have no box around them",
+          thumb_row.locator(".post-actions").evaluate("e => getComputedStyle(e).backgroundColor === 'rgba(0, 0, 0, 0)' && getComputedStyle(e).boxShadow === 'none'"))
     r = row(page, "Garden post 3")
     r.hover()
     r.locator('[data-act="read"]').click()
@@ -625,8 +641,8 @@ def test_phone_touch(browser):
     check("phone: post buttons line up with the right edge", abs((row_box["x"] + row_box["width"] - 16) - (act_box["x"] + act_box["width"])) <= 2,
           (row_box, act_box))
     thumb_row = row(page, "Cozy post 1")
-    check("phone: post buttons sit under the thumbnail too", thumb_row.locator(".post-actions").bounding_box()["y"] >
-          thumb_row.locator(".thumb").bounding_box()["y"] if thumb_row.locator(".thumb").count() else True)
+    check("phone: post buttons sit under the thumbnail too", thumb_row.locator(".post-actions").bounding_box()["y"] >=
+          thumb_row.locator(".thumb").bounding_box()["y"] + thumb_row.locator(".thumb").bounding_box()["height"])
     touch_hold(page, r)
     check("phone: holding a post opens its menu", page.locator("#menu").is_visible())
     check("phone: and doesn't open the post", page.locator("#layout").get_attribute("data-pane") == "posts")

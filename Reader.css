@@ -168,12 +168,12 @@ body.resizing iframe{pointer-events:none}
 @media (hover:hover){.dir:hover{background:var(--accent-soft);color:var(--accent-ink)}}
 .dir.on{background:var(--accent-soft);color:var(--accent-ink);border-color:var(--edge);box-shadow:1px 1px 0 var(--edge)}
 
-/* Quick actions on posts. With a mouse they show on hover, over the bottom right
-   corner of the post, so showing them never changes the post's size. */
-.post-actions{display:none;position:absolute;right:12px;bottom:7px;gap:2px;padding:2px;border-radius:10px;background:rgba(255,255,255,.92);box-shadow:0 0 0 1px var(--line)}
+/* Quick actions on posts, at the end of the meta line. With a mouse they show on
+   hover; the negative margins keep the post the same height when they appear. */
+.post-actions{display:none;flex:none;gap:2px;margin:-5px -6px -5px auto}
 .post-actions button{width:28px;height:26px;border-radius:7px;display:grid;place-items:center;color:var(--muted)}
 .post-actions button svg{width:16px;height:16px;stroke-width:2.2}
-@media (hover:hover){.post-actions button:hover{background:#fff;color:var(--accent-ink);box-shadow:0 0 0 1px var(--edge)}}
+@media (hover:hover){.post-actions button:hover{background:var(--accent-soft);color:var(--accent-ink)}}
 .post-actions button.on{color:#c99500}
 .post-actions button.on svg{fill:var(--warn-bg)}
 .feed-list li{position:relative}
@@ -185,7 +185,7 @@ body.resizing iframe{pointer-events:none}
 @media (hover:none){
   .post .m{margin:2px 0 -6px}
   .post .m .bm{display:none}
-  .post-actions{display:flex;position:static;flex:none;margin-left:auto;padding:0;gap:2px;background:none;box-shadow:none}
+  .post-actions{display:flex;margin:0 0 0 auto}
   .post-actions button{width:40px;height:34px}
   .post-actions button svg{width:19px;height:19px}
 }
@@ -193,7 +193,6 @@ body.resizing iframe{pointer-events:none}
 @media (hover:hover){
   .post:hover .post-actions,.post:focus-visible .post-actions,.post:has(:focus-visible) .post-actions{display:flex}
   .post:hover .m .bm,.post:focus-visible .m .bm,.post:has(:focus-visible) .m .bm{display:none}
-  .post:hover .m,.post:focus-visible .m,.post:has(:focus-visible) .m{padding-right:96px}
   .feed-list li:hover .row-more{display:grid}
   .feed-list li:hover .count,.feed-list li:hover .warn-dot{visibility:hidden}
   .feed-list.sorting li .row-more{display:none}
