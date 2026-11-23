@@ -169,8 +169,8 @@ body.resizing iframe{pointer-events:none}
 .dir.on{background:var(--accent-soft);color:var(--accent-ink);border-color:var(--edge);box-shadow:1px 1px 0 var(--edge)}
 
 /* Quick actions on hover */
-/* Negative margins keep the buttons from making the line taller, so the post doesn't grow on hover. */
-.post-actions{display:none;margin:-5px -6px -5px auto;gap:2px;flex:none}
+/* Sits over the bottom right corner of the post, so showing it never changes the post's size. */
+.post-actions{display:none;position:absolute;right:12px;bottom:7px;gap:2px;padding:2px;border-radius:10px;background:rgba(255,255,255,.92);box-shadow:0 0 0 1px var(--line)}
 .post-actions button{width:28px;height:26px;border-radius:7px;display:grid;place-items:center;color:var(--muted)}
 .post-actions button svg{width:16px;height:16px;stroke-width:2.2}
 .post-actions button:hover{background:#fff;color:var(--accent-ink);box-shadow:0 0 0 1px var(--edge)}
@@ -184,6 +184,7 @@ body.resizing iframe{pointer-events:none}
 @media (hover:hover){
   .post:hover .post-actions{display:flex}
   .post:hover .m .bm{display:none}
+  .post:hover .m{padding-right:96px}
   .feed-list li:hover .row-more{display:grid}
   .feed-list li:hover .count,.feed-list li:hover .warn-dot{visibility:hidden}
   .feed-list.sorting li .row-more{display:none}
