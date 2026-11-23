@@ -6,12 +6,13 @@ on:
   workflow_dispatch:          # adds a "Run workflow" button so you can run it any time
   push:
     branches: [main]
-    paths-ignore:             # runs after any change except reading progress, bookmarks and notes
+    paths-ignore:             # runs after any change except reading progress, bookmarks, notes and tests
       - "State.json"
       - "Bookmarks/**"
       - "README.md"
       - "CLAUDE.md"
       - ".gitignore"
+      - "Tests/**"
 
 permissions:
   contents: read
@@ -33,7 +34,8 @@ jobs:
           python-version: "3.12"
 
       - name: Install feed tools
-        run: pip install feedparser nh3 requests
+        # Exact versions, so a new release can't change or break the update unnoticed.
+        run: pip install feedparser==6.0.14 nh3==0.3.8 requests==2.34.2
 
       # Brings back the posts saved by the last run, so posts that have
       # dropped off a website's feed are still kept for 30 days.
@@ -56,7 +58,7 @@ jobs:
       - name: Put the site together
         run: |
           mkdir site
-          cp index.html Reader.css Reader.js Manifest.json Icon.svg Icon-192.png Icon-512.png "Service Worker.js" site/
+          cp index.html Reader.css Reader.js Manifest.json Icon.svg Icon-192.png Icon-512.png Icon-Maskable.png "Service Worker.js" site/
           cp -r data site/data
           # Stamps this version onto the CSS and JS links, so browsers load the new files right away.
           sed -i "s/?v=BUILD/?v=${GITHUB_SHA::7}/g" site/index.html
@@ -65,6 +67,23 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site
+
+  # Every run saves a new copy of the posts. This deletes the older copies so
+  # they don't pile up. It's its own job so only it can change Actions data.
+  tidy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete older saved posts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP: reader-data-${{ github.run_id }}
+        run: |
+          gh cache list --repo "$GITHUB_REPOSITORY" --key reader-data- --limit 100 --json key --jq '.[].key' \
+            | grep -vxF "$KEEP" \
+            | xargs -r -n1 gh cache delete --repo "$GITHUB_REPOSITORY" || true
 
   deploy:
     needs: build
