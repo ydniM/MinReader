@@ -14,5 +14,5 @@ On the phone, install it from Chrome's menu: **Install and create shortcut**, th
 
 - Don't edit or delete `State.json` or the `Bookmarks` folder. They hold read marks and bookmarks.
 - Posts older than 30 days are cleared out. Bookmarks are kept.
-- To check feeds right away: **Actions** tab, **Update Feeds**, **Run workflow**.
+- The refresh button checks feeds right away. Each access key needs Contents and Actions set to Read and write.
 - GitHub pauses the schedule after 60 days without any activity. To restart it: **Actions** tab, **Update Feeds**, **Enable workflow**.

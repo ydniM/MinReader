@@ -270,8 +270,6 @@ let postsLoadError = '';
 const contentCache = new Map(); // shard prefix -> { id: html }
 
 async function loadPosts() {
-  const btn = $('#refreshBtn');
-  btn.classList.add('spinning');
   try {
     const res = await fetch(`data/index.json?t=${Date.now()}`, { cache: 'no-store' });
     if (res.status === 404) throw new Error('first');
@@ -292,7 +290,6 @@ async function loadPosts() {
       ? 'No posts yet. The first update runs a few minutes after setup, so check back soon.'
       : 'The posts couldn’t be loaded. Check your internet connection, then press the refresh button at the top.';
   }
-  btn.classList.remove('spinning');
   renderAll();
 }
 
@@ -695,7 +692,47 @@ async function addBookmark(post) {
   renderReaderBar();
 }
 
-$('#refreshBtn').addEventListener('click', () => { loadPosts(); loadState(); });
+// The refresh button asks GitHub to check every feed now (instead of waiting
+// for the next 30-minute run), then watches for the new posts. That needs the
+// access key to have the Actions permission; without it, the button just
+// loads whatever GitHub already has.
+let refreshing = false;
+$('#refreshBtn').addEventListener('click', async () => {
+  if (refreshing) return;
+  refreshing = true;
+  const btn = $('#refreshBtn');
+  btn.classList.add('spinning');
+  const before = index ? index.updated : 0;
+  let started = false, noPermission = false;
+  if (token) {
+    try {
+      await gh(`actions/workflows/${encodeURIComponent('Update Feeds.yml')}/dispatches`, { method: 'POST', body: JSON.stringify({ ref: 'main' }) });
+      started = true;
+    } catch (err) { noPermission = err.status === 403 || err.status === 404; }
+  }
+  await Promise.all([loadPosts(), loadState(), new Promise((r) => setTimeout(r, 700))]);
+  if (!started) {
+    btn.classList.remove('spinning');
+    refreshing = false;
+    const fresh = index && index.updated !== before;
+    if (noPermission && !localStorage.getItem('reader-actions-tip')) {
+      localStorage.setItem('reader-actions-tip', '1');
+      toast('Loaded the latest posts. To make this button check your feeds right away, give your access key the Actions permission (Read and write).');
+    } else toast(fresh ? 'New posts loaded.' : 'You’re up to date.');
+    return;
+  }
+  toast('Checking your feeds. New posts will show up in a minute or two.');
+  // Watches for the new data for up to 5 minutes, then stops.
+  const until = Date.now() + 5 * 60e3;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 15e3));
+    await loadPosts();
+    if (index && index.updated !== before) break;
+  }
+  btn.classList.remove('spinning');
+  refreshing = false;
+  if (index && index.updated !== before) toast('Your feeds are up to date.');
+});
 
 // ---------- Toast ----------
 
@@ -755,7 +792,7 @@ function showKeySetup() {
         <li>In <b>Token name</b>, type <code>Mindy's Reader</code> plus the device, like <code>Mindy's Reader PC</code>.</li>
         <li>In <b>Expiration</b>, pick <b>No expiration</b>.</li>
         <li>Under <b>Repository access</b>, click <b>Only select repositories</b>, then pick <b>${esc(OWNER)}/${esc(REPO)}</b>.</li>
-        <li>Under <b>Permissions</b>, click <b>Add permissions</b>, pick <b>Contents</b>, then change it from <b>Read-only</b> to <b>Read and write</b>.</li>
+        <li>Under <b>Permissions</b>, click <b>Add permissions</b> and pick <b>Contents</b> and <b>Actions</b>. Change both from <b>Read-only</b> to <b>Read and write</b>.</li>
         <li>Click <b>Generate token</b> at the bottom, then <b>Copy</b>.</li>
         <li>Paste it below and click <b>Save key</b>.</li>
       </ol>
