@@ -2,7 +2,8 @@
 
 Mindy's personal RSS reader, replacing feeder.co. She is the only user. It is deliberately
 minimal: three columns (feeds, posts, open post), read/unread, mark a feed or everything as
-read, bookmarks (never call them "starred"), add/remove feeds. No AI, no extra features unless
+read, bookmarks (never call them "starred"), add/edit/remove feeds, and feed sorting (drag and
+drop custom order, name A to Z / Z to A, most / fewest unread). No AI, no extra features unless
 she asks.
 
 ## How it works
@@ -19,6 +20,9 @@ she asks.
 - Changes are queued (`reader-pending` in localStorage), saved 4 seconds after the last
   change, and replayed on top of a fresh copy of State.json, retrying on 409/422, so two
   devices never overwrite each other.
+- `State.json` also holds `feedSort` and `feedOrder` (feed ids), so sorting syncs too.
+- Editing a feed's address writes its old id into its `Feeds.json` entry (`"id"`), so its
+  post ids, read marks and custom order position stay the same.
 - Commits to `State.json` and `Bookmarks/` don't trigger the workflow (`paths-ignore`).
 - Post text is shown in a sandboxed iframe (no scripts, no same-origin) on top of the
   server-side sanitizing, because the page holds the access key.

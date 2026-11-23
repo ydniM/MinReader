@@ -252,7 +252,8 @@ def main():
 
     out_feeds, out_posts, out_content = [], [], {}
     for feed, (parsed, error) in zip(feeds, results):
-        fid = feed_id(feed["url"])
+        # A feed whose address was edited keeps its old id, so read marks still match.
+        fid = feed.get("id") or feed_id(feed["url"])
         old = previous_feeds.get(fid, {})
         posts = dict(previous_posts.get(fid, {}))
         info = {

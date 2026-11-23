@@ -133,7 +133,7 @@ async function deleteFile(path, message) {
 // "pending" (also kept in this browser, so closing the tab loses nothing).
 // What's shown is saved + pending.
 
-const emptyState = () => ({ read: {}, bookmarks: {} });
+const emptyState = () => ({ read: {}, bookmarks: {}, feedSort: 'az', feedOrder: [] });
 let saved = readJSON('reader-saved', emptyState());
 let pending = readJSON('reader-pending', []);
 let state = applyAll(saved, pending);
@@ -146,9 +146,16 @@ function applyOp(s, op) {
   else if (op.op === 'unread') for (const id of op.ids) delete s.read[id];
   else if (op.op === 'bookmark') s.bookmarks[op.post.id] = op.post;
   else if (op.op === 'unbookmark') delete s.bookmarks[op.id];
+  else if (op.op === 'sort') s.feedSort = op.sort;
+  else if (op.op === 'order') s.feedOrder = op.ids.slice();
 }
 function applyAll(base, ops) {
-  const s = { read: { ...(base.read || {}) }, bookmarks: { ...(base.bookmarks || {}) } };
+  const s = {
+    read: { ...(base.read || {}) },
+    bookmarks: { ...(base.bookmarks || {}) },
+    feedSort: base.feedSort || 'az',
+    feedOrder: (base.feedOrder || []).slice(),
+  };
   for (const op of ops) applyOp(s, op);
   return s;
 }
@@ -278,6 +285,7 @@ async function loadPosts() {
       for (const id of [...addingFeeds.keys()]) if (index.feeds.some((f) => f.url === addingFeeds.get(id).url)) addingFeeds.delete(id);
       for (const url of [...removingFeeds]) if (!index.feeds.some((f) => f.url === url)) removingFeeds.delete(url);
     }
+    applyFeedEdits();
     postsLoadError = '';
   } catch (err) {
     postsLoadError = err.message === 'first'
@@ -311,9 +319,20 @@ const isRead = (id) => id in state.read;
 const feedOf = (post) => feedsById.get(post.feed) || { id: post.feed, title: post.feedTitle || 'Removed feed', site: post.feedSite || '', url: '' };
 
 function visibleFeeds() {
-  if (!index) return [...addingFeeds.values()];
-  return index.feeds.filter((f) => !removingFeeds.has(f.url)).concat([...addingFeeds.values()])
-    .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+  const list = (index ? index.feeds.filter((f) => !removingFeeds.has(f.url)) : []).concat([...addingFeeds.values()]);
+  const byName = (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+  const sort = state.feedSort || 'az';
+  if (sort === 'za') return list.sort((a, b) => byName(b, a));
+  if (sort === 'most' || sort === 'fewest') {
+    const n = new Map(list.map((f) => [f.id, unreadCount(f.id)]));
+    return list.sort((a, b) => (sort === 'most' ? n.get(b.id) - n.get(a.id) : n.get(a.id) - n.get(b.id)) || byName(a, b));
+  }
+  if (sort === 'custom') {
+    // Feeds you haven't placed yet (like a new one) go at the end.
+    const pos = new Map((state.feedOrder || []).map((id, i) => [id, i]));
+    return list.sort((a, b) => (pos.has(a.id) ? pos.get(a.id) : 1e9) - (pos.has(b.id) ? pos.get(b.id) : 1e9) || byName(a, b));
+  }
+  return list.sort(byName);
 }
 function livePosts() {
   if (!index) return [];
@@ -371,6 +390,8 @@ function renderAll() {
 }
 
 function renderFeeds() {
+  if (dragging) { feedsNeedRender = true; return; }
+  $('#feedSort').value = state.feedSort || 'az';
   const total = unreadCount();
   document.querySelector('[data-count="all"]').textContent = '';
   document.querySelector('[data-count="unread"]').textContent = total || '';
@@ -380,7 +401,7 @@ function renderFeeds() {
     const n = addingFeeds.has(f.id) ? 0 : unreadCount(f.id);
     const warn = f.error ? `<span class="warn-dot" title="${esc(f.error)}">!</span>` : '';
     const extra = addingFeeds.has(f.id) ? '<span class="count">adding…</span>' : `<span class="count">${n || ''}</span>`;
-    return `<li><button class="feed-item${view === 'feed:' + f.id ? ' active' : ''}${n ? ' has-unread' : ''}" data-feed="${esc(f.id)}">
+    return `<li data-feed="${esc(f.id)}"><span class="grip" title="Drag to move" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.3"/><circle cx="15" cy="6" r="1.3"/><circle cx="9" cy="12" r="1.3"/><circle cx="15" cy="12" r="1.3"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/></svg></span><button class="feed-item${view === 'feed:' + f.id ? ' active' : ''}${n ? ' has-unread' : ''}" data-feed="${esc(f.id)}">
       ${faviconHTML(f)}<span class="nm">${esc(f.title)}</span>${warn}${extra}</button></li>`;
   });
   $('#feedList').innerHTML = list.join('') || '<li class="empty">No feeds yet.</li>';
@@ -412,7 +433,7 @@ function renderPosts() {
   markBtn.hidden = view === 'bookmarks';
   markBtn.disabled = unread === 0;
   setLabel(markBtn, isFeed ? 'Mark feed as read' : 'Mark all as read', 'Mark read');
-  $('#removeFeedBtn').hidden = !isFeed || addingFeeds.has(view.slice(5));
+  $('#removeFeedBtn').hidden = $('#editFeedBtn').hidden = !isFeed || addingFeeds.has(view.slice(5));
 
   const problem = $('#feedProblem');
   if (feed && feed.error) {
@@ -770,7 +791,7 @@ async function editFeedsFile(edit, message) {
     const data = file ? JSON.parse(file.text) : { feeds: [] };
     data.feeds = data.feeds || [];
     const result = edit(data);
-    if (result === false) return false;
+    if (result === false || typeof result === 'string') return result;
     try {
       await putFile('Feeds.json', JSON.stringify(data, null, 2) + '\n', file && file.sha, message);
       return true;
@@ -841,7 +862,7 @@ $('#removeFeedBtn').addEventListener('click', () => {
           const button = e.currentTarget;
           busy(button, 'Removing…');
           try {
-            await editFeedsFile((data) => { data.feeds = data.feeds.filter((f) => f.url !== feed.url); }, `Remove feed: ${feed.title}`);
+            await editFeedsFile((data) => { data.feeds = data.feeds.filter((f) => f.url !== feed.url && (f.id || '') !== feed.id); }, `Remove feed: ${feed.title}`);
             removingFeeds.add(feed.url);
             closeModal();
             setView('all', { push: false });
@@ -859,6 +880,151 @@ $('#removeFeedBtn').addEventListener('click', () => {
     ],
   });
 });
+
+// ---------- Sorting feeds ----------
+
+$('#feedSort').addEventListener('change', (e) => {
+  const sort = e.target.value;
+  // Switching to custom order for the first time starts from the order shown now.
+  if (sort === 'custom' && !(state.feedOrder || []).length) change({ op: 'order', ids: visibleFeeds().map((f) => f.id) });
+  change({ op: 'sort', sort });
+  renderFeeds();
+});
+
+// Dragging a feed by its handle. Uses pointer events so it works with a
+// mouse and with a finger. Dropping switches the list to custom order.
+let dragging = null;
+let feedsNeedRender = false;
+
+$('#feedList').addEventListener('pointerdown', (e) => {
+  const grip = e.target.closest('.grip');
+  if (!grip || e.button > 0) return;
+  e.preventDefault();
+  const li = grip.closest('li');
+  const list = $('#feedList');
+  dragging = { li, pointerId: e.pointerId, startOrder: [...list.children].map((x) => x.dataset.feed).join(','), lastY: e.clientY };
+  grip.setPointerCapture(e.pointerId);
+  li.classList.add('dragging');
+  list.classList.add('sorting');
+  dragging.scroller = setInterval(autoScroll, 16);
+});
+
+function moveDragged(y) {
+  const { li } = dragging;
+  const prev = li.previousElementSibling, next = li.nextElementSibling;
+  // Moves the neighbor rather than the dragged row, so the browser keeps
+  // sending pointer events to the row being dragged.
+  if (prev && y < prev.getBoundingClientRect().top + prev.offsetHeight / 2) li.parentNode.insertBefore(prev, li.nextSibling);
+  else if (next && y > next.getBoundingClientRect().top + next.offsetHeight / 2) li.parentNode.insertBefore(next, li);
+}
+
+// Scrolls the feed list while you hold a feed near its top or bottom edge.
+function autoScroll() {
+  if (!dragging) return;
+  const list = $('#feedList');
+  const r = list.getBoundingClientRect();
+  const edge = 44, y = dragging.lastY;
+  let step = 0;
+  if (y < r.top + edge) step = -Math.ceil((r.top + edge - y) / 4);
+  else if (y > r.bottom - edge) step = Math.ceil((y - (r.bottom - edge)) / 4);
+  if (step) { list.scrollTop += step; moveDragged(y); }
+}
+
+window.addEventListener('pointermove', (e) => {
+  if (!dragging || e.pointerId !== dragging.pointerId) return;
+  dragging.lastY = e.clientY;
+  moveDragged(e.clientY);
+});
+
+function endDrag(e) {
+  if (!dragging || e.pointerId !== dragging.pointerId) return;
+  const { li, startOrder, scroller } = dragging;
+  clearInterval(scroller);
+  li.classList.remove('dragging');
+  $('#feedList').classList.remove('sorting');
+  const ids = [...$('#feedList').children].map((x) => x.dataset.feed).filter(Boolean);
+  dragging = null;
+  if (ids.join(',') !== startOrder) {
+    change({ op: 'order', ids });
+    if (state.feedSort !== 'custom') change({ op: 'sort', sort: 'custom' });
+  }
+  if (feedsNeedRender || ids.join(',') !== startOrder) { feedsNeedRender = false; renderFeeds(); }
+}
+window.addEventListener('pointerup', endDrag);
+window.addEventListener('pointercancel', endDrag);
+
+// ---------- Editing a feed ----------
+// Changes are shown right away and kept here until the next update
+// (about a minute later) includes them.
+
+const feedEdits = new Map(); // feed id -> { title, url }
+
+function applyFeedEdits() {
+  for (const [id, edit] of [...feedEdits]) {
+    const f = feedsById.get(id);
+    if (!f) continue;
+    if (f.url === edit.url && (!edit.title || f.title === edit.title) && f.lastSuccess > edit.at) { feedEdits.delete(id); continue; }
+    if (edit.title) f.title = edit.title;
+    if (f.url !== edit.url) { f.url = edit.url; f.error = ''; }
+  }
+}
+
+$('#editFeedBtn').addEventListener('click', () => {
+  const feed = feedsById.get(view.slice(5));
+  if (!feed) return;
+  openModal({
+    title: 'Edit feed',
+    body: `<div class="field"><label for="editName">Name</label><input id="editName" type="text" autocomplete="off" value="${esc(feed.title)}"></div>
+      <div class="field"><label for="editUrl">Address</label><input id="editUrl" type="url" autocomplete="off" spellcheck="false" value="${esc(feed.url)}"></div>
+      <p class="sub" style="font-size:13.5px;color:var(--muted)">Changing the address keeps your read posts and bookmarks. Changes show up fully after the next update, in a minute or two.</p>
+      <div class="form-error" id="editError" hidden></div>`,
+    actions: [
+      { label: 'Cancel', onClick: closeModal },
+      { label: 'Save changes', cls: 'primary', onClick: () => saveFeedEdit(feed) },
+    ],
+    onOpen: () => setTimeout(() => $('#editName').focus(), 50),
+  });
+  ['#editName', '#editUrl'].forEach((s) => $(s).addEventListener('keydown', (e) => { if (e.key === 'Enter') saveFeedEdit(feed); }));
+});
+
+async function saveFeedEdit(feed) {
+  const err = $('#editError');
+  const title = $('#editName').value.trim();
+  let url = $('#editUrl').value.trim();
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  try { new URL(url); } catch { url = ''; }
+  if (!title) { err.textContent = 'Give the feed a name.'; err.hidden = false; return; }
+  if (!url || url === 'https://') { err.textContent = 'That doesn’t look like a web address.'; err.hidden = false; return; }
+  if (title === feed.title && url === feed.url) { closeModal(); return; }
+  const button = $('#modalActions .primary');
+  busy(button, 'Saving…');
+  try {
+    const result = await editFeedsFile((data) => {
+      const entry = data.feeds.find((f) => (f.id || '') === feed.id || f.url === feed.url);
+      if (!entry) return 'missing';
+      if (url !== entry.url && data.feeds.some((f) => f !== entry && f.url === url)) return 'duplicate';
+      entry.title = title;
+      if (url !== entry.url) {
+        entry.id = feed.id; // keeps the same id, so read marks and bookmarks still match
+        entry.url = url;
+      }
+    }, `Edit feed: ${title}`);
+    if (result === 'duplicate') { err.textContent = 'Another feed in your list already uses that address.'; err.hidden = false; unbusy(button); return; }
+    if (result === 'missing') { err.textContent = 'This feed couldn’t be found in your list. Press the refresh button at the top and try again.'; err.hidden = false; unbusy(button); return; }
+    feedEdits.set(feed.id, { title, url, at: nowSec() });
+    applyFeedEdits();
+    closeModal();
+    toast('Feed saved.');
+    fastCheckUntil = Date.now() + 6 * 60e3;
+    renderAll();
+  } catch (e) {
+    err.textContent = e.status === 401 || e.status === 403 || e.status === 404
+      ? 'Your access key can’t change files in the repo. Use Change access key to fix it.'
+      : 'The feed couldn’t be saved. Check your internet connection and try again.';
+    err.hidden = false;
+    unbusy(button);
+  }
+}
 
 // ---------- Keeping up to date ----------
 

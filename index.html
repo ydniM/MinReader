@@ -30,7 +30,16 @@
       <button class="view-btn" data-view="unread"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg><span class="nm">Unread</span><span class="count" data-count="unread"></span></button>
       <button class="view-btn" data-view="bookmarks"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg><span class="nm">Bookmarks</span><span class="count" data-count="bookmarks"></span></button>
     </div>
-    <div class="group-h">Feeds</div>
+    <div class="feeds-head">
+      <span class="group-h">Feeds</span>
+      <select id="feedSort" class="sort-select" aria-label="Sort feeds">
+        <option value="custom">Custom order</option>
+        <option value="az">Name (A to Z)</option>
+        <option value="za">Name (Z to A)</option>
+        <option value="most">Most unread first</option>
+        <option value="fewest">Fewest unread first</option>
+      </select>
+    </div>
     <ul class="feed-list" id="feedList"></ul>
     <div class="col-foot">
       <button class="btn" id="addFeedBtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add feed</button>
@@ -47,6 +56,7 @@
         <div class="sub" id="viewCount"></div>
       </div>
       <button class="btn small" id="markAllBtn"><svg viewBox="0 0 24 24"><path d="M3 12l4 4 8-8"/><path d="M11 16l2 0 8-8"/></svg><span class="long">Mark all as read</span><span class="short">Mark read</span></button>
+      <button class="iconbtn" id="editFeedBtn" title="Edit this feed" aria-label="Edit this feed" hidden><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></button>
       <button class="iconbtn" id="removeFeedBtn" title="Remove this feed" aria-label="Remove this feed" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
     </div>
     <div class="problem" id="feedProblem" hidden></div>
