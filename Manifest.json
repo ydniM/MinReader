@@ -1,7 +1,7 @@
 {
   "id": "/Mindy-s-Reader/",
-  "name": "Mindy's Reader",
-  "short_name": "Reader",
+  "name": "MinReader",
+  "short_name": "MinReader",
   "start_url": "/Mindy-s-Reader/",
   "scope": "/Mindy-s-Reader/",
   "display": "standalone",

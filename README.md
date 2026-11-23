@@ -1,4 +1,4 @@
-# Mindy's Reader
+# MinReader
 
 My RSS reader. GitHub checks the feeds every 30 minutes and hosts the page.
 

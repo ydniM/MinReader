@@ -1,6 +1,6 @@
 'use strict';
 
-/* Mindy's Reader
+/* MinReader
    Posts come from data/index.json, which GitHub Actions rebuilds every 30
    minutes. Reading progress and bookmarks are saved to State.json in the
    GitHub repo (and each bookmarked post's text to Bookmarks/<id>.html),
@@ -8,7 +8,7 @@
    thing. */
 
 // The page holds the access key, so it refuses to run inside another site's frame.
-if (window.top !== window.self) throw new Error('Mindy’s Reader can’t run inside a frame.');
+if (window.top !== window.self) throw new Error('MinReader can’t run inside a frame.');
 
 // ---------- Settings ----------
 
@@ -446,7 +446,7 @@ function renderFeeds() {
   const total = counts.get('');
   document.querySelector('[data-count="all"]').textContent = '';
   document.querySelector('[data-count="unread"]').textContent = total || '';
-  document.title = (total ? `(${total}) ` : '') + 'Mindy’s Reader';
+  document.title = (total ? `(${total}) ` : '') + 'MinReader';
   document.querySelector('[data-count="bookmarks"]').textContent = Object.keys(state.bookmarks).length || '';
   document.querySelectorAll('.view-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   const list = visibleFeeds(counts).map((f) => {
@@ -898,7 +898,7 @@ function showKeySetup() {
     body: `<p>The reader saves what you’ve read and bookmarked to your GitHub repo, so it needs a key that can change files in that one repo. You only do this once on each device.</p>
       <ol>
         <li>Open <a class="linkbtn" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub’s new token page</a> (sign in if it asks).</li>
-        <li>In <b>Token name</b>, type <code>Mindy's Reader</code> plus the device, like <code>Mindy's Reader PC</code>.</li>
+        <li>In <b>Token name</b>, type <code>MinReader</code> plus the device, like <code>MinReader PC</code>.</li>
         <li>In <b>Expiration</b>, pick <b>No expiration</b>.</li>
         <li>Under <b>Repository access</b>, click <b>Only select repositories</b>, then pick <b>${esc(OWNER)}/${esc(REPO)}</b>.</li>
         <li>Under <b>Permissions</b>, click <b>Add permissions</b> and pick <b>Contents</b> and <b>Actions</b>. Change both from <b>Read-only</b> to <b>Read and write</b>.</li>

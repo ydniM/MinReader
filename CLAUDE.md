@@ -1,6 +1,6 @@
-# Mindy's Reader: project context
+# MinReader: project context
 
-Mindy's personal RSS reader, replacing feeder.co. She is the only user. It is deliberately
+MinReader (named like her MinTorrent) is Mindy's personal RSS reader, replacing feeder.co. She is the only user. It is deliberately
 minimal: three columns (feeds, posts, open post), read/unread, mark a feed or everything as
 read, bookmarks (never call them "starred"), add/edit/remove feeds, and feed sorting (drag and
 drop custom order, name A to Z / Z to A, most / fewest unread). No AI, no extra features unless
