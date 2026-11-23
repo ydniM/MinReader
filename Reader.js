@@ -1020,7 +1020,7 @@ const ICONS = {
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   open: '<path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/>',
   bookmark: '<path d="M6 3h12v18l-6-4.5L6 21z"/>',
-  readall: '<path d="M3 12l4 4 8-8"/><path d="M11 16l2 0 8-8"/>',
+  readall: '<path d="M2 13l4 4 9-10"/><path d="M10.5 16l1 1 9-10"/>',
 };
 
 function openMenu(items, x, y) {
