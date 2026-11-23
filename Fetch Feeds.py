@@ -73,9 +73,25 @@ def feed_id(url):
 
 
 def plain_text(fragment):
+    """The text of an HTML fragment, without tags."""
     text = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", fragment or "", flags=re.S | re.I)
     text = re.sub(r"<[^>]+>", " ", text)
     return re.sub(r"\s+", " ", html.unescape(text)).strip()
+
+
+def text_of(value, detail):
+    """A title or name as plain text. Feeds mark plain text titles as
+    text/plain, and those can hold a real "<" (like "a < b"), so only HTML
+    titles have tags taken out."""
+    if (detail or {}).get("type") == "text/plain":
+        return re.sub(r"\s+", " ", value or "").strip()
+    return plain_text(value)
+
+
+def parse(content, content_type=""):
+    # feedparser's own cleaning drops srcset, so some images would go missing.
+    # clean_html cleans every post instead.
+    return feedparser.parse(content, response_headers={"content-type": content_type}, sanitize_html=False)
 
 
 def clean_html(fragment, base_url):
@@ -184,12 +200,13 @@ def fetch_feed(feed):
                 response = download(re.sub(r"//(www\.)?reddit\.com", "//old.reddit.com", url, count=1))
             else:
                 raise
-        parsed = feedparser.parse(response.content, response_headers={"content-type": response.headers.get("content-type", "")})
+        parsed = parse(response.content, response.headers.get("content-type", ""))
         if not parsed.entries and not parsed.feed.get("title"):
             found = find_feed_link(response.text, response.url)
             if not found:
                 return None, "This address is a web page, not a feed, and the page doesn't list a feed."
-            parsed = feedparser.parse(download(found).content)
+            found_response = download(found)
+            parsed = parse(found_response.content, found_response.headers.get("content-type", ""))
         if parsed.bozo and not parsed.entries:
             return None, "The feed couldn't be read (it isn't valid RSS or Atom)."
         return parsed, None
@@ -276,7 +293,7 @@ def main():
             info["lastSuccess"] = now
             info["site"] = web_url(parsed.feed.get("link"), feed["url"]) or info["site"] or feed["url"]
             if not feed.get("title") and parsed.feed.get("title"):
-                info["title"] = plain_text(parsed.feed["title"])
+                info["title"] = text_of(parsed.feed["title"], parsed.feed.get("title_detail"))
             for entry in parsed.entries:
                 link = web_url(entry.get("link"), info["site"])
                 guid = entry.get("id") or link or (entry.get("title", "") + str(entry_time(entry)))
@@ -293,7 +310,7 @@ def main():
                 posts[pid] = {
                     "id": pid,
                     "feed": fid,
-                    "title": plain_text(entry.get("title", "")) or "(No title)",
+                    "title": text_of(entry.get("title", ""), entry.get("title_detail")) or "(No title)",
                     "link": link,
                     "author": plain_text(entry.get("author", "")),
                     "date": when,
