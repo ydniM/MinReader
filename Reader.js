@@ -534,7 +534,7 @@ function renderReaderBar() {
   readBtn.querySelector('svg').innerHTML = read ? '<circle cx="12" cy="12" r="8"/>' : '<path d="M5 12l5 5 9-10"/>';
   const marked = !!state.bookmarks[current.id];
   bmBtn.classList.toggle('on', marked);
-  setLabel(bmBtn, marked ? 'Bookmarked' : 'Bookmark', marked ? 'Saved' : 'Save');
+  setLabel(bmBtn, marked ? 'Bookmarked' : 'Bookmark', marked ? 'Bookmarked' : 'Bookmark');
   bmBtn.title = marked ? 'Remove bookmark' : 'Bookmark';
   if (webUrl(current.link)) { openBtn.href = current.link; openBtn.removeAttribute('aria-disabled'); }
   else { openBtn.setAttribute('aria-disabled', 'true'); openBtn.removeAttribute('href'); }
