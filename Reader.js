@@ -401,7 +401,7 @@ function renderFeeds() {
     const warn = f.error ? `<span class="warn-dot" title="${esc(f.error)}">!</span>` : '';
     const extra = addingFeeds.has(f.id) ? '<span class="count">adding…</span>' : `<span class="count">${n || ''}</span>`;
     return `<li data-feed="${esc(f.id)}"><button class="feed-item${view === 'feed:' + f.id ? ' active' : ''}${n ? ' has-unread' : ''}" data-feed="${esc(f.id)}">
-      ${faviconHTML(f)}<span class="nm">${esc(f.title)}</span>${warn}${extra}</button></li>`;
+      ${faviconHTML(f)}<span class="nm">${esc(f.title)}</span>${warn}${extra}</button>${addingFeeds.has(f.id) ? '' : `<button class="row-more" title="More options" aria-label="More options for ${esc(f.title)}"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/></svg></button>`}</li>`;
   });
   $('#feedList').innerHTML = list.join('') || '<li class="empty">No feeds yet.</li>';
 }
@@ -412,9 +412,14 @@ function postRowHTML(p) {
   const bm = state.bookmarks[p.id] && view !== 'bookmarks'
     ? '<svg class="bm" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg>' : '';
   const thumb = p.image ? `<img class="thumb" src="${esc(p.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '';
+  const read = isRead(p.id), marked = !!state.bookmarks[p.id];
+  const actions = `<span class="post-actions">
+    ${postsById.has(p.id) ? `<button data-act="read" title="${read ? 'Mark as unread' : 'Mark as read'}"><svg viewBox="0 0 24 24">${read ? ICONS.circle : ICONS.check}</svg></button>` : ''}
+    <button data-act="bookmark" class="${marked ? 'on' : ''}" title="${marked ? 'Remove bookmark' : 'Bookmark'}"><svg viewBox="0 0 24 24">${ICONS.bookmark}</svg></button>
+    ${p.link ? `<button data-act="open" title="Open original"><svg viewBox="0 0 24 24">${ICONS.open}</svg></button>` : ''}</span>`;
   return `<li class="post${cls}${current && current.id === p.id ? ' active' : ''}" data-id="${esc(p.id)}">
     <div class="txt"><div class="t">${esc(p.title)}</div>${p.summary ? `<div class="s">${esc(p.summary)}</div>` : ''}
-    <div class="m">${faviconHTML(f)}<span class="fname">${esc(f.title)}</span><span>· ${ago(p.date)}</span>${bm}</div></div>${thumb}</li>`;
+    <div class="m">${faviconHTML(f)}<span class="fname">${esc(f.title)}</span><span class="ago">· ${ago(p.date)}</span>${bm}${actions}</div></div>${thumb}</li>`;
 }
 
 function renderPosts() {
@@ -612,10 +617,27 @@ document.querySelector('.views').addEventListener('click', (e) => {
   if (b) setView(b.dataset.view);
 });
 $('#feedList').addEventListener('click', (e) => {
+  const more = e.target.closest('.row-more');
+  if (more) {
+    const items = feedMenu(feedsById.get(more.closest('li').dataset.feed));
+    const r = more.getBoundingClientRect();
+    if (items) openMenu(items, r.right - 230, r.bottom + 4);
+    return;
+  }
   const b = e.target.closest('.feed-item');
   if (b) setView('feed:' + b.dataset.feed);
 });
 $('#postList').addEventListener('click', (e) => {
+  const act = e.target.closest('.post-actions button');
+  if (act) {
+    const id = act.closest('.post').dataset.id;
+    const post = postsById.get(id) || state.bookmarks[id];
+    if (!post) return;
+    if (act.dataset.act === 'read') toggleRead(id);
+    else if (act.dataset.act === 'bookmark') toggleBookmark(post);
+    else if (act.dataset.act === 'open') window.open(post.link, '_blank', 'noopener');
+    return;
+  }
   const row = e.target.closest('.post');
   if (row) openPost(row.dataset.id);
 });
@@ -894,6 +916,7 @@ const ICONS = {
 
 function openMenu(items, x, y) {
   const menu = $('#menu');
+  menu.onclick = null;
   menu.innerHTML = '';
   for (const item of items) {
     if (item === '-') { menu.insertAdjacentHTML('beforeend', '<div class="menu-sep"></div>'); continue; }
@@ -905,11 +928,14 @@ function openMenu(items, x, y) {
     b.addEventListener('click', () => { closeMenu(); item.onClick(); });
     menu.appendChild(b);
   }
+  placeMenu(x, y);
+}
+function placeMenu(x, y) {
+  const menu = $('#menu');
   menu.hidden = false;
   const r = menu.getBoundingClientRect();
   menu.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + 'px';
   menu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
-  menu.querySelector('.menu-item:not(:disabled)')?.focus({ preventScroll: true });
 }
 function closeMenu() { $('#menu').hidden = true; }
 document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#menu')) closeMenu(); }, true);
@@ -955,22 +981,57 @@ $('#moreFeedBtn').addEventListener('click', (e) => {
 
 // Sorting
 
-const SORTS = [
-  ['custom', 'Custom order (drag feeds to arrange)'],
-  ['az', 'Name, A to Z'],
-  ['za', 'Name, Z to A'],
-  ['most', 'Most unread first'],
-  ['fewest', 'Fewest unread first'],
-];
 function setSort(sort) {
   // Switching to custom order for the first time starts from the order shown now.
   if (sort === 'custom' && !(state.feedOrder || []).length) change({ op: 'order', ids: visibleFeeds().map((f) => f.id) });
   change({ op: 'sort', sort });
   renderFeeds();
 }
+
+// The sort menu: Custom, then Name and Unread, each with an up and down
+// arrow for the direction. Clicking a name picks it, or flips it if it's
+// already picked.
+const SORT_ROWS = [
+  { label: 'Custom', up: 'custom' },
+  { label: 'Name', up: 'az', down: 'za', upTitle: 'A to Z', downTitle: 'Z to A' },
+  { label: 'Unread', up: 'fewest', down: 'most', upTitle: 'Fewest first', downTitle: 'Most first', first: 'most' },
+];
+const ARROW_UP = '<path d="M12 19V5M6 11l6-6 6 6"/>';
+const ARROW_DOWN = '<path d="M12 5v14M6 13l6 6 6-6"/>';
+
+function showSortMenu(x, y) {
+  const now = state.feedSort || 'az';
+  const menu = $('#menu');
+  menu.innerHTML = '<div class="menu-head">Sort feeds</div>' + SORT_ROWS.map((row, i) => {
+    const active = now === row.up || now === row.down;
+    const arrows = row.down ? `<span class="sort-dirs">
+        <button class="dir${now === row.up ? ' on' : ''}" data-sort="${row.up}" title="${row.upTitle}" aria-label="${row.label}, ${row.upTitle}"><svg viewBox="0 0 24 24">${ARROW_UP}</svg></button>
+        <button class="dir${now === row.down ? ' on' : ''}" data-sort="${row.down}" title="${row.downTitle}" aria-label="${row.label}, ${row.downTitle}"><svg viewBox="0 0 24 24">${ARROW_DOWN}</svg></button></span>` : '';
+    return `<div class="sort-row${active ? ' active' : ''}"><button class="menu-item${active ? ' checked' : ''}" data-row="${i}"><svg viewBox="0 0 24 24">${active ? ICONS.check : ''}</svg><span>${row.label}</span></button>${arrows}</div>`;
+  }).join('');
+  menu.onclick = (e) => {
+    const dir = e.target.closest('[data-sort]');
+    const rowBtn = e.target.closest('[data-row]');
+    let sort = null;
+    if (dir) sort = dir.dataset.sort;
+    else if (rowBtn) {
+      const row = SORT_ROWS[+rowBtn.dataset.row];
+      if (!row.down) sort = row.up;
+      else if (now === row.up) sort = row.down;
+      else if (now === row.down) sort = row.up;
+      else sort = row.first || row.up;
+    }
+    if (!sort) return;
+    menu.onclick = null;
+    setSort(sort);
+    showSortMenu(x, y); // stays open so the change is visible
+  };
+  placeMenu(x, y);
+}
+
 $('#sortBtn').addEventListener('click', (e) => {
   const r = e.currentTarget.getBoundingClientRect();
-  openMenu([{ heading: 'Sort feeds' }, ...SORTS.map(([value, label]) => ({ label, checked: (state.feedSort || 'az') === value, onClick: () => setSort(value) }))], r.left, r.bottom + 6);
+  showSortMenu(r.left, r.bottom + 6);
 });
 
 // ---------- Pressing, dragging and right-clicking ----------

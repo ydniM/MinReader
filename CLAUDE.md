@@ -29,7 +29,9 @@ she asks.
 - Interaction: feeds are dragged directly (mouse: press and move 5px; phone: hold 420ms then
   slide). Right-click (phone: hold and release) opens a menu on feeds, posts, All posts and
   Unread. The feed view's ⋯ button opens the same feed menu. Sorting is a quiet "Sort"
-  button next to FEEDS that opens the same menu style.
+  button next to FEEDS: rows Custom, Name and Unread, with up/down direction arrows.
+- On hover (mouse only): posts show quick actions (read/unread, bookmark, open original) at
+  the end of their meta line, and feeds show a ⋯ button in place of the unread count.
 - Column widths: drag the gaps between columns; double-click a gap to reset. Saved per device
   in localStorage (`reader-widths`), not synced.
 - Opening a post marks it read. Nothing is auto-selected when a list opens. In the Unread
@@ -43,6 +45,8 @@ she asks.
   gradients, dark 1px outlines with 2px hard shadows, 16px card radius, accent `#6c6cf2`.
 - UI text: full, friendly sentences. No dashes as sentence punctuation.
 - File names use proper capitalization and spaces where possible.
+- Don't over-explain in the UI or README: she knows her own app. The README only covers
+  what she needs to know to use and maintain it.
 
 ## Testing
 
