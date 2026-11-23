@@ -466,9 +466,9 @@ function postRowHTML(p) {
     ${postsById.has(p.id) ? `<button data-act="read" title="${read ? 'Mark as unread' : 'Mark as read'}"><svg viewBox="0 0 24 24">${read ? ICONS.circle : ICONS.check}</svg></button>` : ''}
     <button data-act="bookmark" class="${marked ? 'on' : ''}" title="${marked ? 'Remove bookmark' : 'Bookmark'}"><svg viewBox="0 0 24 24">${ICONS.bookmark}</svg></button>
     ${webUrl(p.link) ? `<button data-act="open" title="Open original"><svg viewBox="0 0 24 24">${ICONS.open}</svg></button>` : ''}</span>`;
-  return `<li class="post${cls}${current && current.id === p.id ? ' active' : ''}" data-id="${esc(p.id)}">
-    <div class="txt"><div class="t">${esc(p.title)}</div>${p.summary ? `<div class="s">${esc(p.summary)}</div>` : ''}
-    <div class="m">${faviconHTML(f)}<span class="fname">${esc(f.title)}</span><span class="ago">· ${ago(p.date)}</span>${bm}${actions}</div></div>${thumb}</li>`;
+  return `<li class="post${cls}${thumb ? ' with-thumb' : ''}${current && current.id === p.id ? ' active' : ''}" data-id="${esc(p.id)}">
+    <div class="txt"><div class="t">${esc(p.title)}</div>${p.summary ? `<div class="s">${esc(p.summary)}</div>` : ''}</div>${thumb}
+    <div class="m">${faviconHTML(f)}<span class="fname">${esc(f.title)}</span><span class="ago">· ${ago(p.date)}</span>${bm}${actions}</div></li>`;
 }
 
 function renderPosts() {
