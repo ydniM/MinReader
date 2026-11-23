@@ -36,12 +36,14 @@ she asks.
   slide). Right-click (phone: hold and release) opens a menu on feeds, posts, All posts and
   Unread. The feed view's ⋯ button opens the same feed menu. Sorting is a quiet "Sort"
   button next to FEEDS: rows Custom, Name and Unread, with up/down direction arrows.
-- On hover (mouse only): posts show quick actions (read/unread, bookmark, open original) at
-  the end of their meta line, and feeds show a ⋯ button in place of the unread count.
+- Posts have quick actions (read/unread, bookmark, open original). With a mouse they show on
+  hover over the post's bottom right corner; on touch screens they always show at the end of
+  the meta line. Feeds show a ⋯ button on hover in place of the unread count.
 - Column widths: drag the gaps between columns; double-click a gap to reset. Saved per device
   in localStorage (`reader-widths`), not synced.
 - Opening a post marks it read. Nothing is auto-selected when a list opens. In the Unread
-  view, posts read during the visit stay listed until she leaves the view.
+  view, read posts leave the list right away (like Feeder). On a computer the open post stays
+  listed until another one is opened. Marking one read with its check button shows Undo.
 - Under 800px wide it shows one column at a time; each step deeper is a history entry so the
   phone's back gesture works.
 

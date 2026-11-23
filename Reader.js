@@ -393,13 +393,13 @@ function unreadCounts() {
 
 let view = readJSON('reader-view', 'all');  // 'all', 'unread', 'bookmarks' or 'feed:<id>'
 let current = null;                       // the open post
-let keepVisible = new Set();              // posts read while looking at Unread, kept until you leave it
 let shownCount = PAGE_SIZE;
 
 function postsForView() {
   if (view === 'bookmarks') return Object.values(state.bookmarks).sort((a, b) => b.saved - a.saved);
   const posts = livePosts();
-  if (view === 'unread') return posts.filter((p) => !isRead(p.id) || keepVisible.has(p.id));
+  // Read posts leave Unread. On a computer the open post stays until you open another.
+  if (view === 'unread') return posts.filter((p) => !isRead(p.id) || (current && p.id === current.id && !isPhone()));
   if (view.startsWith('feed:')) { const id = view.slice(5); return posts.filter((p) => p.feed === id); }
   return posts;
 }
@@ -416,7 +416,6 @@ function setView(v, { push = true } = {}) {
   if (v.startsWith('feed:') && !feedsById.has(v.slice(5)) && !addingFeeds.has(v.slice(5))) v = 'all';
   view = v;
   writeJSON('reader-view', view);
-  keepVisible = new Set();
   shownCount = PAGE_SIZE;
   renderAll();
   $('#postScroll').scrollTop = 0;
@@ -469,7 +468,7 @@ function postRowHTML(p) {
     ${webUrl(p.link) ? `<button data-act="open" title="Open original"><svg viewBox="0 0 24 24">${ICONS.open}</svg></button>` : ''}</span>`;
   return `<li class="post${cls}${current && current.id === p.id ? ' active' : ''}" data-id="${esc(p.id)}">
     <div class="txt"><div class="t">${esc(p.title)}</div>${p.summary ? `<div class="s">${esc(p.summary)}</div>` : ''}
-    <div class="m">${faviconHTML(f)}<span class="fname">${esc(f.title)}</span><span class="ago">· ${ago(p.date)}</span>${bm}</div></div>${thumb}${actions}</li>`;
+    <div class="m">${faviconHTML(f)}<span class="fname">${esc(f.title)}</span><span class="ago">· ${ago(p.date)}</span>${bm}${actions}</div></div>${thumb}</li>`;
 }
 
 function renderPosts() {
@@ -557,6 +556,14 @@ function refreshRow(id) {
     row.replaceWith(tmp.content.firstChild);
   }
 }
+// Redraws a post's row, or takes it out of (or puts it back in) Unread.
+function updateRow(id) {
+  const row = document.querySelector(`.post[data-id="${CSS.escape(id)}"]`);
+  const listed = postsForView().some((p) => p.id === id);
+  if (row && !listed && document.querySelectorAll('.post').length > 1) row.remove();
+  else if (!!row !== listed) renderPosts();
+  else refreshRow(id);
+}
 function refreshCounts() {
   renderFeeds();
   const posts = postsForView();
@@ -597,17 +604,18 @@ let openToken = 0;
 async function openPost(id) {
   const post = postsById.get(id) || state.bookmarks[id];
   if (!post) return;
+  const previous = current;
   current = post;
   document.querySelectorAll('.post.active').forEach((r) => r.classList.remove('active'));
   const row = document.querySelector(`.post[data-id="${CSS.escape(id)}"]`);
   if (row) row.classList.add('active');
 
   if (!isRead(id) && postsById.has(id)) {
-    if (view === 'unread') keepVisible.add(id);
     change({ op: 'read', ids: [id] });
-    refreshRow(id);
+    updateRow(id);
     refreshCounts();
   }
+  if (previous && previous.id !== id) updateRow(previous.id);
   renderReaderBar();
   showPane('post');
 
@@ -701,7 +709,6 @@ function markRead(posts) {
   const ids = posts.filter((p) => !isRead(p.id)).map((p) => p.id);
   if (!ids.length) return;
   change({ op: 'read', ids });
-  keepVisible = new Set();
   renderAll();
   toast(`Marked ${ids.length} ${ids.length === 1 ? 'post' : 'posts'} as read.`, () => {
     change({ op: 'unread', ids });
@@ -711,12 +718,21 @@ function markRead(posts) {
 $('#markAllBtn').addEventListener('click', () => markRead(postsForView()));
 
 function toggleRead(id) {
-  if (isRead(id)) change({ op: 'unread', ids: [id] });
-  else change({ op: 'read', ids: [id] });
-  if (view === 'unread') keepVisible.add(id);
-  refreshRow(id);
+  const nowRead = !isRead(id);
+  change({ op: nowRead ? 'read' : 'unread', ids: [id] });
+  const wasListed = !!document.querySelector(`.post[data-id="${CSS.escape(id)}"]`);
+  updateRow(id);
   refreshCounts();
   renderReaderBar();
+  // The post just left Unread, so a slip can be undone.
+  if (nowRead && wasListed && !document.querySelector(`.post[data-id="${CSS.escape(id)}"]`)) {
+    toast('Marked as read.', () => {
+      change({ op: 'unread', ids: [id] });
+      updateRow(id);
+      refreshCounts();
+      renderReaderBar();
+    });
+  }
 }
 $('#readBtn').addEventListener('click', () => { if (current) toggleRead(current.id); });
 
