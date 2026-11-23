@@ -1,18 +1,61 @@
 {
   "feeds": [
-    { "title": "404 Media", "url": "https://www.404media.co/rss/" },
-    { "title": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index/" },
-    { "title": "bungalower", "url": "https://bungalower.com/feed/" },
-    { "title": "How-To Geek", "url": "https://feeds.howtogeek.com/HowToGeek" },
-    { "title": "Lemon Hearted Blog Posts", "url": "https://www.lemonhearted.com/blog?format=rss" },
-    { "title": "Music Releases", "url": "https://ydniM.github.io/Music-Releases-Feed/feed.xml" },
-    { "title": "Oh No They Didn't!", "url": "https://ohnotheydidnt.livejournal.com/data/rss" },
-    { "title": "Orlando", "url": "https://www.reddit.com/r/orlando/.rss" },
-    { "title": "Orlando Weekly", "url": "https://www.orlandoweekly.com/feed/?partner-feed=all" },
-    { "title": "PBS NewsHour Latest Stories", "url": "https://www.pbs.org/newshour/feeds/rss/headlines" },
-    { "title": "Scientific American", "url": "https://www.scientificamerican.com/platform/syndication/rss/" },
-    { "title": "SMA News Today", "url": "https://smanewstoday.com/feed/" },
-    { "title": "the kpg torrent", "url": "https://kpgtorrent.neocities.org/feed.xml" },
-    { "title": "What The Fuck Just Happened Today?", "url": "https://whatthefuckjusthappenedtoday.com/rss.xml" }
+    {
+      "title": "404 Media",
+      "url": "https://www.404media.co/rss/"
+    },
+    {
+      "title": "Ars Technica",
+      "url": "https://feeds.arstechnica.com/arstechnica/index/"
+    },
+    {
+      "title": "bungalower",
+      "url": "https://bungalower.com/feed/"
+    },
+    {
+      "title": "How-To Geek",
+      "url": "https://feeds.howtogeek.com/HowToGeek"
+    },
+    {
+      "title": "Lemon Hearted Blog Posts",
+      "url": "https://www.lemonhearted.com/blog?format=rss"
+    },
+    {
+      "title": "Music Releases",
+      "url": "https://ydnim.github.io/MinMusic/feed.xml",
+      "id": "c1782d93"
+    },
+    {
+      "title": "Oh No They Didn't!",
+      "url": "https://ohnotheydidnt.livejournal.com/data/rss"
+    },
+    {
+      "title": "Orlando",
+      "url": "https://www.reddit.com/r/orlando/.rss"
+    },
+    {
+      "title": "Orlando Weekly",
+      "url": "https://www.orlandoweekly.com/feed/?partner-feed=all"
+    },
+    {
+      "title": "PBS NewsHour Latest Stories",
+      "url": "https://www.pbs.org/newshour/feeds/rss/headlines"
+    },
+    {
+      "title": "Scientific American",
+      "url": "https://www.scientificamerican.com/platform/syndication/rss/"
+    },
+    {
+      "title": "SMA News Today",
+      "url": "https://smanewstoday.com/feed/"
+    },
+    {
+      "title": "the kpg torrent",
+      "url": "https://kpgtorrent.neocities.org/feed.xml"
+    },
+    {
+      "title": "What The Fuck Just Happened Today?",
+      "url": "https://whatthefuckjusthappenedtoday.com/rss.xml"
+    }
   ]
 }
