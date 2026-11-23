@@ -56,6 +56,8 @@ jobs:
           mkdir site
           cp index.html Reader.css Reader.js Manifest.json Icon.svg Icon-192.png Icon-512.png "Service Worker.js" site/
           cp -r data site/data
+          # Stamps this version onto the CSS and JS links, so browsers load the new files right away.
+          sed -i "s/?v=BUILD/?v=${GITHUB_SHA::7}/g" site/index.html
 
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
