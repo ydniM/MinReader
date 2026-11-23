@@ -391,7 +391,6 @@ function renderAll() {
 
 function renderFeeds() {
   if (dragging) { feedsNeedRender = true; return; }
-  $('#feedSort').value = state.feedSort || 'az';
   const total = unreadCount();
   document.querySelector('[data-count="all"]').textContent = '';
   document.querySelector('[data-count="unread"]').textContent = total || '';
@@ -401,7 +400,7 @@ function renderFeeds() {
     const n = addingFeeds.has(f.id) ? 0 : unreadCount(f.id);
     const warn = f.error ? `<span class="warn-dot" title="${esc(f.error)}">!</span>` : '';
     const extra = addingFeeds.has(f.id) ? '<span class="count">adding…</span>' : `<span class="count">${n || ''}</span>`;
-    return `<li data-feed="${esc(f.id)}"><span class="grip" title="Drag to move" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.3"/><circle cx="15" cy="6" r="1.3"/><circle cx="9" cy="12" r="1.3"/><circle cx="15" cy="12" r="1.3"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/></svg></span><button class="feed-item${view === 'feed:' + f.id ? ' active' : ''}${n ? ' has-unread' : ''}" data-feed="${esc(f.id)}">
+    return `<li data-feed="${esc(f.id)}"><button class="feed-item${view === 'feed:' + f.id ? ' active' : ''}${n ? ' has-unread' : ''}" data-feed="${esc(f.id)}">
       ${faviconHTML(f)}<span class="nm">${esc(f.title)}</span>${warn}${extra}</button></li>`;
   });
   $('#feedList').innerHTML = list.join('') || '<li class="empty">No feeds yet.</li>';
@@ -433,7 +432,7 @@ function renderPosts() {
   markBtn.hidden = view === 'bookmarks';
   markBtn.disabled = unread === 0;
   setLabel(markBtn, isFeed ? 'Mark feed as read' : 'Mark all as read', 'Mark read');
-  $('#removeFeedBtn').hidden = $('#editFeedBtn').hidden = !isFeed || addingFeeds.has(view.slice(5));
+  $('#moreFeedBtn').hidden = !isFeed || addingFeeds.has(view.slice(5));
 
   const problem = $('#feedProblem');
   if (feed && feed.error) {
@@ -622,8 +621,9 @@ $('#postList').addEventListener('click', (e) => {
 });
 document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => history.back()));
 
-$('#markAllBtn').addEventListener('click', () => {
-  const ids = postsForView().filter((p) => !isRead(p.id)).map((p) => p.id);
+// Marks a group of posts read, with an Undo button in case it was a slip.
+function markRead(posts) {
+  const ids = posts.filter((p) => !isRead(p.id)).map((p) => p.id);
   if (!ids.length) return;
   change({ op: 'read', ids });
   keepVisible = new Set();
@@ -632,22 +632,21 @@ $('#markAllBtn').addEventListener('click', () => {
     change({ op: 'unread', ids });
     renderAll();
   });
-});
+}
+$('#markAllBtn').addEventListener('click', () => markRead(postsForView()));
 
-$('#readBtn').addEventListener('click', () => {
-  if (!current) return;
-  const id = current.id;
+function toggleRead(id) {
   if (isRead(id)) change({ op: 'unread', ids: [id] });
   else change({ op: 'read', ids: [id] });
   if (view === 'unread') keepVisible.add(id);
   refreshRow(id);
   refreshCounts();
   renderReaderBar();
-});
+}
+$('#readBtn').addEventListener('click', () => { if (current) toggleRead(current.id); });
 
-$('#bookmarkBtn').addEventListener('click', async () => {
-  if (!current) return;
-  const post = current;
+$('#bookmarkBtn').addEventListener('click', () => { if (current) toggleBookmark(current); });
+async function toggleBookmark(post) {
   if (state.bookmarks[post.id]) {
     change({ op: 'unbookmark', id: post.id });
     toast('Bookmark removed.', () => { addBookmark(post); });
@@ -657,7 +656,7 @@ $('#bookmarkBtn').addEventListener('click', async () => {
   if (view === 'bookmarks') renderPosts(); else refreshRow(post.id);
   refreshCounts();
   renderReaderBar();
-});
+}
 
 async function addBookmark(post) {
   let html = '';
@@ -849,9 +848,7 @@ async function addFeed() {
 }
 $('#addFeedBtn').addEventListener('click', showAddFeed);
 
-$('#removeFeedBtn').addEventListener('click', () => {
-  const feed = feedsById.get(view.slice(5));
-  if (!feed) return;
+function removeFeed(feed) {
   openModal({
     title: 'Remove this feed?',
     body: `<p><b>${esc(feed.title)}</b> and its posts will be removed from the reader. Posts you bookmarked from it stay in Bookmarks.</p><div class="form-error" id="removeError" hidden></div>`,
@@ -865,7 +862,7 @@ $('#removeFeedBtn').addEventListener('click', () => {
             await editFeedsFile((data) => { data.feeds = data.feeds.filter((f) => f.url !== feed.url && (f.id || '') !== feed.id); }, `Remove feed: ${feed.title}`);
             removingFeeds.add(feed.url);
             closeModal();
-            setView('all', { push: false });
+            if (view === 'feed:' + feed.id) setView('all', { push: false }); else renderAll();
             toast(`Removed ${feed.title}.`);
           } catch (err) {
             const box = $('#removeError');
@@ -879,35 +876,195 @@ $('#removeFeedBtn').addEventListener('click', () => {
       },
     ],
   });
+}
+
+// ---------- Menus ----------
+// One small pop-up menu, used by right-clicking (or long-pressing on a
+// phone) a feed, a post, All posts or Unread, and by the sort and ⋯ buttons.
+
+const ICONS = {
+  check: '<path d="M5 12l5 5 9-10"/>',
+  circle: '<circle cx="12" cy="12" r="8"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  open: '<path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/>',
+  bookmark: '<path d="M6 3h12v18l-6-4.5L6 21z"/>',
+  readall: '<path d="M3 12l4 4 8-8"/><path d="M11 16l2 0 8-8"/>',
+};
+
+function openMenu(items, x, y) {
+  const menu = $('#menu');
+  menu.innerHTML = '';
+  for (const item of items) {
+    if (item === '-') { menu.insertAdjacentHTML('beforeend', '<div class="menu-sep"></div>'); continue; }
+    if (item.heading) { menu.insertAdjacentHTML('beforeend', `<div class="menu-head">${esc(item.heading)}</div>`); continue; }
+    const b = document.createElement('button');
+    b.className = 'menu-item' + (item.danger ? ' danger' : '') + (item.checked ? ' checked' : '');
+    b.disabled = !!item.disabled;
+    b.innerHTML = `<svg viewBox="0 0 24 24">${item.checked ? ICONS.check : ICONS[item.icon] || ''}</svg><span>${esc(item.label)}</span>`;
+    b.addEventListener('click', () => { closeMenu(); item.onClick(); });
+    menu.appendChild(b);
+  }
+  menu.hidden = false;
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + 'px';
+  menu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
+  menu.querySelector('.menu-item:not(:disabled)')?.focus({ preventScroll: true });
+}
+function closeMenu() { $('#menu').hidden = true; }
+document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#menu')) closeMenu(); }, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+window.addEventListener('resize', closeMenu);
+document.addEventListener('scroll', closeMenu, true);
+
+function feedMenu(feed) {
+  if (!feed || addingFeeds.has(feed.id)) return null;
+  const posts = livePosts().filter((p) => p.feed === feed.id);
+  const items = [
+    { label: 'Mark feed as read', icon: 'readall', disabled: !posts.some((p) => !isRead(p.id)), onClick: () => markRead(posts) },
+    { label: 'Rename or change address', icon: 'edit', onClick: () => editFeed(feed) },
+  ];
+  if (feed.site) items.push({ label: 'Open website', icon: 'open', onClick: () => window.open(feed.site, '_blank', 'noopener') });
+  items.push('-', { label: 'Remove feed', icon: 'trash', danger: true, onClick: () => removeFeed(feed) });
+  return items;
+}
+function postMenu(post) {
+  const items = [];
+  if (postsById.has(post.id)) items.push({ label: isRead(post.id) ? 'Mark as unread' : 'Mark as read', icon: isRead(post.id) ? 'circle' : 'check', onClick: () => toggleRead(post.id) });
+  items.push({ label: state.bookmarks[post.id] ? 'Remove bookmark' : 'Bookmark', icon: 'bookmark', onClick: () => toggleBookmark(post) });
+  if (post.link) items.push({ label: 'Open original', icon: 'open', onClick: () => window.open(post.link, '_blank', 'noopener') });
+  return items;
+}
+function viewMenu(v) {
+  if (v === 'bookmarks') return null;
+  const posts = v === 'unread' ? livePosts().filter((p) => !isRead(p.id)) : livePosts();
+  return [{ label: 'Mark all as read', icon: 'readall', disabled: !posts.some((p) => !isRead(p.id)), onClick: () => markRead(posts) }];
+}
+function menuFor(el) {
+  if (el.matches('.feed-list li')) return feedMenu(feedsById.get(el.dataset.feed));
+  if (el.matches('.post')) { const p = postsById.get(el.dataset.id) || state.bookmarks[el.dataset.id]; return p ? postMenu(p) : null; }
+  if (el.matches('.view-btn')) return viewMenu(el.dataset.view);
+  return null;
+}
+
+$('#moreFeedBtn').addEventListener('click', (e) => {
+  const items = feedMenu(feedsById.get(view.slice(5)));
+  const r = e.currentTarget.getBoundingClientRect();
+  if (items) openMenu(items, r.right - 230, r.bottom + 6);
 });
 
-// ---------- Sorting feeds ----------
+// Sorting
 
-$('#feedSort').addEventListener('change', (e) => {
-  const sort = e.target.value;
+const SORTS = [
+  ['custom', 'Custom order (drag feeds to arrange)'],
+  ['az', 'Name, A to Z'],
+  ['za', 'Name, Z to A'],
+  ['most', 'Most unread first'],
+  ['fewest', 'Fewest unread first'],
+];
+function setSort(sort) {
   // Switching to custom order for the first time starts from the order shown now.
   if (sort === 'custom' && !(state.feedOrder || []).length) change({ op: 'order', ids: visibleFeeds().map((f) => f.id) });
   change({ op: 'sort', sort });
   renderFeeds();
+}
+$('#sortBtn').addEventListener('click', (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  openMenu([{ heading: 'Sort feeds' }, ...SORTS.map(([value, label]) => ({ label, checked: (state.feedSort || 'az') === value, onClick: () => setSort(value) }))], r.left, r.bottom + 6);
 });
 
-// Dragging a feed by its handle. Uses pointer events so it works with a
-// mouse and with a finger. Dropping switches the list to custom order.
-let dragging = null;
-let feedsNeedRender = false;
+// ---------- Pressing, dragging and right-clicking ----------
+// With a mouse: drag a feed to move it, right-click for its menu.
+// With a finger: press and hold, then slide to move a feed, or let go to
+// open its menu. A quick tap still just opens it.
 
-$('#feedList').addEventListener('pointerdown', (e) => {
-  const grip = e.target.closest('.grip');
-  if (!grip || e.button > 0) return;
+let press = null;          // the press in progress
+let dragging = null;       // the feed being dragged
+let feedsNeedRender = false;
+let swallowUntil = 0;      // stops the click that ends a drag or long-press from opening things
+const HOLD_MS = 420;
+
+const pressTarget = (t) => t.closest('.feed-list li[data-feed], .post, .view-btn');
+
+document.addEventListener('pointerdown', (e) => {
+  swallowUntil = 0; // a new press means the old drag's click has already passed
+  if (e.button !== 0) return;
+  const el = pressTarget(e.target);
+  if (!el || e.target.closest('#menu')) return;
+  press = { el, id: e.pointerId, type: e.pointerType, x: e.clientX, y: e.clientY, armed: false };
+  if (e.pointerType !== 'mouse') {
+    press.timer = setTimeout(() => {
+      if (!press) return;
+      press.armed = true;
+      el.classList.add('held');
+      if (navigator.vibrate) navigator.vibrate(12);
+    }, HOLD_MS);
+  }
+});
+
+window.addEventListener('pointermove', (e) => {
+  if (!press || e.pointerId !== press.id) return;
+  press.lastY = e.clientY;
+  if (dragging) { moveDragged(e.clientY); return; }
+  const dist = Math.hypot(e.clientX - press.x, e.clientY - press.y);
+  const isFeed = press.el.matches('.feed-list li');
+  if (press.type === 'mouse') {
+    if (isFeed && dist > 5) startDrag();
+  } else if (!press.armed) {
+    if (dist > 8) endPress(); // a scroll, not a press
+  } else if (isFeed && dist > 6) startDrag();
+});
+
+window.addEventListener('pointerup', (e) => {
+  if (!press || e.pointerId !== press.id) return;
+  if (dragging) { finishDrag(); swallowUntil = Date.now() + 350; }
+  else if (press.armed) {
+    const items = menuFor(press.el);
+    if (items) openMenu(items, e.clientX, e.clientY);
+    swallowUntil = Date.now() + 350;
+  }
+  endPress();
+});
+window.addEventListener('pointercancel', (e) => {
+  if (!press || e.pointerId !== press.id) return;
+  if (dragging) finishDrag();
+  endPress();
+});
+
+function endPress() {
+  if (!press) return;
+  clearTimeout(press.timer);
+  press.el.classList.remove('held');
+  press = null;
+}
+
+// While holding or dragging on a phone, stop the page from scrolling instead.
+document.addEventListener('touchmove', (e) => { if (press && (press.armed || dragging)) e.preventDefault(); }, { passive: false });
+
+document.addEventListener('click', (e) => {
+  if (Date.now() < swallowUntil) { swallowUntil = 0; e.stopPropagation(); e.preventDefault(); }
+}, true);
+
+document.addEventListener('contextmenu', (e) => {
+  const el = pressTarget(e.target);
+  if (!el) return;
   e.preventDefault();
-  const li = grip.closest('li');
+  if (press && press.type !== 'mouse') return; // a long press is handled above
+  const items = menuFor(el);
+  if (items) openMenu(items, e.clientX, e.clientY);
+});
+
+function startDrag() {
+  const li = press.el;
   const list = $('#feedList');
-  dragging = { li, pointerId: e.pointerId, startOrder: [...list.children].map((x) => x.dataset.feed).join(','), lastY: e.clientY };
-  grip.setPointerCapture(e.pointerId);
+  dragging = { li, startOrder: [...list.children].map((x) => x.dataset.feed).join(',') };
+  clearTimeout(press.timer);
+  try { li.setPointerCapture(press.id); } catch { /* the pointer already ended */ }
+  li.classList.remove('held');
   li.classList.add('dragging');
   list.classList.add('sorting');
   dragging.scroller = setInterval(autoScroll, 16);
-});
+}
 
 function moveDragged(y) {
   const { li } = dragging;
@@ -918,40 +1075,89 @@ function moveDragged(y) {
   else if (next && y > next.getBoundingClientRect().top + next.offsetHeight / 2) li.parentNode.insertBefore(next, li);
 }
 
-// Scrolls the feed list while you hold a feed near its top or bottom edge.
+// Scrolls the feed list while a feed is held near its top or bottom edge.
 function autoScroll() {
-  if (!dragging) return;
+  if (!dragging || !press || press.lastY == null) return;
   const list = $('#feedList');
   const r = list.getBoundingClientRect();
-  const edge = 44, y = dragging.lastY;
+  const edge = 44, y = press.lastY;
   let step = 0;
   if (y < r.top + edge) step = -Math.ceil((r.top + edge - y) / 4);
   else if (y > r.bottom - edge) step = Math.ceil((y - (r.bottom - edge)) / 4);
   if (step) { list.scrollTop += step; moveDragged(y); }
 }
 
-window.addEventListener('pointermove', (e) => {
-  if (!dragging || e.pointerId !== dragging.pointerId) return;
-  dragging.lastY = e.clientY;
-  moveDragged(e.clientY);
-});
-
-function endDrag(e) {
-  if (!dragging || e.pointerId !== dragging.pointerId) return;
+function finishDrag() {
   const { li, startOrder, scroller } = dragging;
   clearInterval(scroller);
   li.classList.remove('dragging');
   $('#feedList').classList.remove('sorting');
   const ids = [...$('#feedList').children].map((x) => x.dataset.feed).filter(Boolean);
   dragging = null;
-  if (ids.join(',') !== startOrder) {
+  const moved = ids.join(',') !== startOrder;
+  if (moved) {
     change({ op: 'order', ids });
     if (state.feedSort !== 'custom') change({ op: 'sort', sort: 'custom' });
   }
-  if (feedsNeedRender || ids.join(',') !== startOrder) { feedsNeedRender = false; renderFeeds(); }
+  if (feedsNeedRender || moved) { feedsNeedRender = false; renderFeeds(); }
 }
-window.addEventListener('pointerup', endDrag);
-window.addEventListener('pointercancel', endDrag);
+
+// ---------- Column widths ----------
+// Drag the space between two columns to resize them. Double-click it to go
+// back to the normal width. Widths are saved per device.
+
+const WIDTH_LIMITS = { w1: [180, 480], w2: [260, 760] };
+const READ_MIN = 380;
+let widths = readJSON('reader-widths', {});
+
+function applyWidths() {
+  const layout = $('#layout');
+  for (const key of ['w1', 'w2']) {
+    if (widths[key]) layout.style.setProperty('--' + key, widths[key] + 'px');
+    else layout.style.removeProperty('--' + key);
+  }
+}
+document.querySelectorAll('.gutter').forEach((g) => {
+  const key = g.dataset.col;
+  g.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    g.setPointerCapture(e.pointerId);
+    const col = key === 'w1' ? $('.feeds-col') : $('.posts-col');
+    const start = col.getBoundingClientRect().width;
+    const otherKey = key === 'w1' ? 'w2' : 'w1';
+    const other = (key === 'w1' ? $('.posts-col') : $('.feeds-col')).getBoundingClientRect().width;
+    const layoutWidth = $('#layout').clientWidth;
+    const x0 = e.clientX;
+    g.classList.add('active');
+    document.body.classList.add('resizing');
+    const move = (ev) => {
+      const [min, max] = WIDTH_LIMITS[key];
+      const room = layoutWidth - other - 4 * 14 - READ_MIN; // keep the reading column usable
+      widths[key] = Math.round(Math.max(min, Math.min(max, room, start + ev.clientX - x0)));
+      if (!widths[otherKey]) widths[otherKey] = Math.round(other);
+      applyWidths();
+    };
+    const up = () => {
+      g.removeEventListener('pointermove', move);
+      g.removeEventListener('pointerup', up);
+      g.removeEventListener('pointercancel', up);
+      g.classList.remove('active');
+      document.body.classList.remove('resizing');
+      writeJSON('reader-widths', widths);
+    };
+    g.addEventListener('pointermove', move);
+    g.addEventListener('pointerup', up);
+    g.addEventListener('pointercancel', up);
+  });
+  g.addEventListener('dblclick', () => {
+    widths = {};
+    writeJSON('reader-widths', widths);
+    applyWidths();
+    toast('Columns are back to their normal widths.');
+  });
+});
+applyWidths();
 
 // ---------- Editing a feed ----------
 // Changes are shown right away and kept here until the next update
@@ -969,11 +1175,9 @@ function applyFeedEdits() {
   }
 }
 
-$('#editFeedBtn').addEventListener('click', () => {
-  const feed = feedsById.get(view.slice(5));
-  if (!feed) return;
+function editFeed(feed) {
   openModal({
-    title: 'Edit feed',
+    title: 'Rename or change address',
     body: `<div class="field"><label for="editName">Name</label><input id="editName" type="text" autocomplete="off" value="${esc(feed.title)}"></div>
       <div class="field"><label for="editUrl">Address</label><input id="editUrl" type="url" autocomplete="off" spellcheck="false" value="${esc(feed.url)}"></div>
       <p class="sub" style="font-size:13.5px;color:var(--muted)">Changing the address keeps your read posts and bookmarks. Changes show up fully after the next update, in a minute or two.</p>
@@ -985,7 +1189,7 @@ $('#editFeedBtn').addEventListener('click', () => {
     onOpen: () => setTimeout(() => $('#editName').focus(), 50),
   });
   ['#editName', '#editUrl'].forEach((s) => $(s).addEventListener('keydown', (e) => { if (e.key === 'Enter') saveFeedEdit(feed); }));
-});
+}
 
 async function saveFeedEdit(feed) {
   const err = $('#editError');

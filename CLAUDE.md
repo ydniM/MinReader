@@ -26,6 +26,12 @@ she asks.
 - Commits to `State.json` and `Bookmarks/` don't trigger the workflow (`paths-ignore`).
 - Post text is shown in a sandboxed iframe (no scripts, no same-origin) on top of the
   server-side sanitizing, because the page holds the access key.
+- Interaction: feeds are dragged directly (mouse: press and move 5px; phone: hold 420ms then
+  slide). Right-click (phone: hold and release) opens a menu on feeds, posts, All posts and
+  Unread. The feed view's ⋯ button opens the same feed menu. Sorting is a quiet "Sort"
+  button next to FEEDS that opens the same menu style.
+- Column widths: drag the gaps between columns; double-click a gap to reset. Saved per device
+  in localStorage (`reader-widths`), not synced.
 - Opening a post marks it read. Nothing is auto-selected when a list opens. In the Unread
   view, posts read during the visit stay listed until she leaves the view.
 - Under 800px wide it shows one column at a time; each step deeper is a history entry so the

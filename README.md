@@ -22,8 +22,9 @@ The first time you open it on a device, it asks for an access key and shows the 
 ## Things to know
 
 - Posts older than 30 days are cleared out. Bookmarked posts are kept forever, even after a website removes them from its feed.
-- To sort your feeds, use the menu next to **FEEDS**. To put them in your own order, drag a feed by the dots on its left.
-- To rename a feed or change its address, click the feed, then click the pencil at the top of the post list.
+- To sort your feeds, click **Sort** next to **FEEDS**. To put them in your own order, drag a feed up or down (on a phone, press and hold it first, then slide).
+- Right-click a feed, a post, **All posts** or **Unread** for more options, like marking as read, renaming or removing. On a phone, press and hold, then let go.
+- To resize the columns, drag the gap between two columns. Double-click the gap to put them back to normal.
 - If a feed stops working, a yellow **!** shows next to it. Click the feed to see what went wrong.
 - GitHub pauses scheduled jobs in a repo that has had no activity for 60 days. Reading posts counts as activity, so this only happens if you stop using the reader for two months. To restart it, go to the **Actions** tab, click **Update Feeds**, and click **Enable workflow**.
 - To check for new posts right away, go to the **Actions** tab, click **Update Feeds**, click **Run workflow**, then click the green **Run workflow** button.
