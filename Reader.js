@@ -879,6 +879,9 @@ document.addEventListener('visibilitychange', () => {
 
 // ---------- Start ----------
 
+// The service worker is what lets Chrome install the reader as an app.
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('Service%20Worker.js').catch(() => {});
+
 renderAll();
 if (!REPO) {
   $('#postsEmpty').hidden = false;

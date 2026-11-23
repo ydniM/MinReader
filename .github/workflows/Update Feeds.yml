@@ -54,7 +54,7 @@ jobs:
       - name: Put the site together
         run: |
           mkdir site
-          cp index.html Reader.css Reader.js Manifest.json Icon.svg Icon-192.png Icon-512.png site/
+          cp index.html Reader.css Reader.js Manifest.json Icon.svg Icon-192.png Icon-512.png "Service Worker.js" site/
           cp -r data site/data
 
       - uses: actions/configure-pages@v6
