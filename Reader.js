@@ -398,8 +398,8 @@ let shownCount = PAGE_SIZE;
 function postsForView() {
   if (view === 'bookmarks') return Object.values(state.bookmarks).sort((a, b) => b.saved - a.saved);
   const posts = livePosts();
-  // Read posts leave Unread. On a computer the open post stays until you open another.
-  if (view === 'unread') return posts.filter((p) => !isRead(p.id) || (current && p.id === current.id && !isPhone()));
+  // Read posts leave Unread right away (the open post stays open in the reader).
+  if (view === 'unread') return posts.filter((p) => !isRead(p.id));
   if (view.startsWith('feed:')) { const id = view.slice(5); return posts.filter((p) => p.feed === id); }
   return posts;
 }
