@@ -1,0 +1,14 @@
+{
+  "name": "Mindy's Reader",
+  "short_name": "Reader",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#e6e1fb",
+  "theme_color": "#dcc9f4",
+  "icons": [
+    { "src": "Icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "Icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "Icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

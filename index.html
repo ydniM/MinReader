@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mindy’s Reader</title>
+<meta name="theme-color" content="#dcc9f4">
+<link rel="icon" href="Icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="Icon-192.png">
+<link rel="manifest" href="Manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="Reader.css">
+</head>
+<body>
+
+<header class="topbar">
+  <span class="brandicon"><svg viewBox="0 0 24 24"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1.4"/></svg></span>
+  <span class="title">Mindy’s Reader</span>
+  <span class="updated" id="updated"></span>
+  <button class="iconbtn" id="refreshBtn" title="Check for new posts" aria-label="Check for new posts"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
+</header>
+
+<div class="layout" id="layout" data-pane="feeds">
+
+  <aside class="col feeds-col">
+    <div class="views">
+      <button class="view-btn" data-view="all"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span class="nm">All posts</span><span class="count" data-count="all"></span></button>
+      <button class="view-btn" data-view="unread"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg><span class="nm">Unread</span><span class="count" data-count="unread"></span></button>
+      <button class="view-btn" data-view="bookmarks"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg><span class="nm">Bookmarks</span><span class="count" data-count="bookmarks"></span></button>
+    </div>
+    <div class="group-h">Feeds</div>
+    <ul class="feed-list" id="feedList"></ul>
+    <div class="col-foot">
+      <button class="btn" id="addFeedBtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add feed</button>
+      <div class="sync" id="syncStatus"></div>
+      <button class="linkbtn" id="keyBtn">Change access key</button>
+    </div>
+  </aside>
+
+  <section class="col posts-col">
+    <div class="col-head">
+      <button class="iconbtn back" data-back aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="head-text">
+        <h2 id="viewTitle">All posts</h2>
+        <div class="sub" id="viewCount"></div>
+      </div>
+      <button class="btn small" id="markAllBtn"><svg viewBox="0 0 24 24"><path d="M3 12l4 4 8-8"/><path d="M11 16l2 0 8-8"/></svg><span class="long">Mark all as read</span><span class="short">Mark read</span></button>
+      <button class="iconbtn" id="removeFeedBtn" title="Remove this feed" aria-label="Remove this feed" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+    </div>
+    <div class="problem" id="feedProblem" hidden></div>
+    <div class="post-scroll" id="postScroll">
+      <ul class="post-list" id="postList"></ul>
+      <div class="empty" id="postsEmpty" hidden></div>
+      <div id="moreSentinel"></div>
+    </div>
+  </section>
+
+  <section class="col read-col">
+    <div class="col-head reader-bar">
+      <button class="iconbtn back" data-back aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <span class="spacer"></span>
+      <button class="btn small" id="readBtn" disabled><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg><span class="long">Mark as unread</span><span class="short">Unread</span></button>
+      <button class="btn small" id="bookmarkBtn" disabled><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg><span class="long">Bookmark</span><span class="short">Save</span></button>
+      <a class="btn small primary" id="openBtn" target="_blank" rel="noopener noreferrer" aria-disabled="true"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg><span class="long">Open original</span><span class="short">Open</span></a>
+    </div>
+    <div class="empty reader-empty" id="readerEmpty">
+      <div class="big"><svg viewBox="0 0 24 24"><path d="M4 5h7a2 2 0 0 1 2 2v13a2 2 0 0 0-2-2H4zM20 5h-7a2 2 0 0 0-2 2v13a2 2 0 0 1 2-2h7z"/></svg></div>
+      Pick a post to read.
+    </div>
+    <iframe class="reader-frame" id="readerFrame" title="Post" sandbox="allow-popups allow-popups-to-escape-sandbox" hidden></iframe>
+  </section>
+
+</div>
+
+<div class="toast" id="toast" role="status" hidden><span id="toastText"></span><button class="linkbtn" id="toastUndo" hidden>Undo</button></div>
+
+<div class="scrim" id="modal">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <h3 id="modalTitle"></h3>
+    <div id="modalBody"></div>
+    <div class="sheet-actions" id="modalActions"></div>
+  </div>
+</div>
+
+<script src="Reader.js"></script>
+</body>
+</html>
