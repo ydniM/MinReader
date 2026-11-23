@@ -671,10 +671,29 @@ function showPane(pane) {
 window.addEventListener('popstate', (e) => {
   $('#layout').dataset.pane = (e.state && e.state.pane) || 'feeds';
 });
-history.replaceState({ pane: 'feeds' }, '');
 // On a phone, open straight to the list you were last looking at (like
-// Unread). The back gesture still goes to the feed list.
-if (isPhone()) showPane('posts');
+// Unread). The back gesture still goes to the feed list, but Chrome skips
+// history entries added before the first tap, so that entry goes in at the
+// first tap (a pointerup or key press counts as one).
+if (isPhone()) {
+  $('#layout').dataset.pane = 'posts';
+  history.replaceState({ pane: 'posts', beforeFirstTap: true }, '');
+  const addFeedsStep = () => {
+    if (!navigator.userActivation || navigator.userActivation.isActive) {
+      if (history.state && history.state.beforeFirstTap) {
+        const pane = $('#layout').dataset.pane;
+        history.replaceState({ pane: 'feeds' }, '');
+        history.pushState({ pane }, '');
+      }
+      document.removeEventListener('pointerup', addFeedsStep, true);
+      document.removeEventListener('keydown', addFeedsStep, true);
+    }
+  };
+  document.addEventListener('pointerup', addFeedsStep, true);
+  document.addEventListener('keydown', addFeedsStep, true);
+} else {
+  history.replaceState({ pane: 'feeds' }, '');
+}
 
 // ---------- Actions ----------
 
