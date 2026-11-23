@@ -443,6 +443,7 @@ function renderFeeds() {
   const total = counts.get('');
   document.querySelector('[data-count="all"]').textContent = '';
   document.querySelector('[data-count="unread"]').textContent = total || '';
+  document.title = (total ? `(${total}) ` : '') + 'Mindy’s Reader';
   document.querySelector('[data-count="bookmarks"]').textContent = Object.keys(state.bookmarks).length || '';
   document.querySelectorAll('.view-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   const list = visibleFeeds(counts).map((f) => {
