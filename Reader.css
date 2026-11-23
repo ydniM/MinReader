@@ -33,24 +33,25 @@ h1,h2,h3,.topbar .title{font-family:'Baloo 2','Nunito',sans-serif;letter-spacing
 .brandicon svg{width:19px;height:19px;color:var(--accent);stroke-width:2.6}
 .topbar .updated{font-size:13px;color:var(--muted);white-space:nowrap}
 
-/* Buttons */
+/* Buttons. Hover colors only apply with a mouse, since a tap on a phone
+   leaves the button "hovered" until the next tap. */
 .iconbtn{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;color:var(--ink)}
 .iconbtn svg{width:21px;height:21px}
-.iconbtn:hover{background:rgba(36,31,25,.07)}
+@media (hover:hover){.iconbtn:hover{background:rgba(36,31,25,.07)}}
 .iconbtn.spinning svg{animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:7px 14px;
   background:var(--card);border:1px solid var(--edge);border-radius:12px;color:var(--ink);font-size:15px;font-weight:800;
   box-shadow:var(--shadow);text-decoration:none;white-space:nowrap;transition:background .12s}
 .btn svg{width:18px;height:18px;flex:none;stroke-width:2.4}
-.btn:hover{background:var(--accent-soft)}
+@media (hover:hover){.btn:hover{background:var(--accent-soft)}}
 .btn:active{transform:translate(2px,2px);box-shadow:none}
 .btn.small{min-height:36px;padding:5px 11px;font-size:14px}
 .btn .short{display:none}
 .btn.primary{background:var(--accent);color:#fff}
-.btn.primary:hover{background:var(--accent-ink)}
+@media (hover:hover){.btn.primary:hover{background:var(--accent-ink)}}
 .btn.danger{background:var(--out-bg)}
-.btn.danger:hover{background:#f56a8b}
+@media (hover:hover){.btn.danger:hover{background:#f56a8b}}
 .btn.on{background:var(--warn-bg)}
 .btn.on svg{fill:currentColor}
 .btn:disabled,.btn[aria-disabled="true"]{opacity:.45;pointer-events:none;box-shadow:none}
@@ -79,7 +80,7 @@ body.resizing iframe{pointer-events:none}
 .view-btn,.feed-item{width:100%;display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:12px;text-align:left;
   border:1px solid transparent;font-size:15px;font-weight:700}
 .view-btn svg{width:19px;height:19px;flex:none;color:var(--accent)}
-.view-btn:hover,.feed-item:hover{background:rgba(108,108,242,.08)}
+@media (hover:hover){.view-btn:hover,.feed-item:hover{background:rgba(108,108,242,.08)}}
 .view-btn.active,.feed-item.active{background:var(--accent-soft);border-color:var(--edge);box-shadow:1.5px 1.5px 0 var(--edge)}
 .view-btn .nm,.feed-item .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .count{font-size:12px;font-weight:800;padding:1px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent-ink);
@@ -90,7 +91,7 @@ body.resizing iframe{pointer-events:none}
 .feeds-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;margin:16px 10px 8px 18px}
 .sortbtn{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border-radius:8px;color:var(--muted);font-size:12.5px;font-weight:800}
 .sortbtn svg{width:15px;height:15px}
-.sortbtn:hover{background:rgba(108,108,242,.1);color:var(--accent-ink)}
+@media (hover:hover){.sortbtn:hover{background:rgba(108,108,242,.1);color:var(--accent-ink)}}
 .feed-list,.post-list,.views{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .feed-list.sorting,.feed-list.sorting *{cursor:grabbing}
 .feed-list li.dragging{position:relative;z-index:2}
@@ -116,8 +117,9 @@ body.resizing iframe{pointer-events:none}
 .post-scroll{flex:1;min-height:0;overflow-y:auto}
 .post-list{list-style:none}
 .post{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);cursor:pointer;position:relative}
-.post:hover{background:rgba(108,108,242,.06)}
+@media (hover:hover){.post:hover{background:rgba(108,108,242,.06)}}
 .post.active{background:var(--accent-soft);box-shadow:inset 4px 0 0 var(--accent)}
+.post:focus-visible{outline-offset:-3px}
 .post .txt{min-width:0;grid-column:1 / -1}
 .post.with-thumb .txt{grid-column:1}
 .post .t{font-size:16px;font-weight:800;line-height:1.3;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
@@ -163,7 +165,7 @@ body.resizing iframe{pointer-events:none}
 .sort-dirs{display:flex;gap:3px;padding-right:4px}
 .dir{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--muted);border:1px solid transparent}
 .dir svg{width:16px;height:16px;stroke-width:2.4}
-.dir:hover{background:var(--accent-soft);color:var(--accent-ink)}
+@media (hover:hover){.dir:hover{background:var(--accent-soft);color:var(--accent-ink)}}
 .dir.on{background:var(--accent-soft);color:var(--accent-ink);border-color:var(--edge);box-shadow:1px 1px 0 var(--edge)}
 
 /* Quick actions on posts. With a mouse they show on hover, over the bottom right
@@ -171,14 +173,14 @@ body.resizing iframe{pointer-events:none}
 .post-actions{display:none;position:absolute;right:12px;bottom:7px;gap:2px;padding:2px;border-radius:10px;background:rgba(255,255,255,.92);box-shadow:0 0 0 1px var(--line)}
 .post-actions button{width:28px;height:26px;border-radius:7px;display:grid;place-items:center;color:var(--muted)}
 .post-actions button svg{width:16px;height:16px;stroke-width:2.2}
-.post-actions button:hover{background:#fff;color:var(--accent-ink);box-shadow:0 0 0 1px var(--edge)}
+@media (hover:hover){.post-actions button:hover{background:#fff;color:var(--accent-ink);box-shadow:0 0 0 1px var(--edge)}}
 .post-actions button.on{color:#c99500}
 .post-actions button.on svg{fill:var(--warn-bg)}
 .feed-list li{position:relative}
 .row-more{display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);width:30px;height:28px;border-radius:8px;
   place-items:center;color:var(--ink);background:#fff;border:1px solid var(--edge)}
 .row-more svg{width:17px;height:17px}
-.row-more:hover{background:var(--accent-soft)}
+@media (hover:hover){.row-more:hover{background:var(--accent-soft)}}
 /* Touch screens can't hover, so the buttons always show at the end of the meta line. */
 @media (hover:none){
   .post .m{margin:2px 0 -6px}
@@ -187,10 +189,11 @@ body.resizing iframe{pointer-events:none}
   .post-actions button{width:40px;height:34px}
   .post-actions button svg{width:19px;height:19px}
 }
+/* They also show for the post that has keyboard focus. */
 @media (hover:hover){
-  .post:hover .post-actions{display:flex}
-  .post:hover .m .bm{display:none}
-  .post:hover .m{padding-right:96px}
+  .post:hover .post-actions,.post:focus-visible .post-actions,.post:has(:focus-visible) .post-actions{display:flex}
+  .post:hover .m .bm,.post:focus-visible .m .bm,.post:has(:focus-visible) .m .bm{display:none}
+  .post:hover .m,.post:focus-visible .m,.post:has(:focus-visible) .m{padding-right:96px}
   .feed-list li:hover .row-more{display:grid}
   .feed-list li:hover .count,.feed-list li:hover .warn-dot{visibility:hidden}
   .feed-list.sorting li .row-more{display:none}
@@ -205,7 +208,7 @@ body.resizing iframe{pointer-events:none}
 /* Dialogs */
 .scrim{position:fixed;inset:0;background:rgba(20,15,40,.5);z-index:50;display:none;align-items:center;justify-content:center;padding:16px}
 .scrim.show{display:flex}
-.sheet{background:var(--card);width:100%;max-width:520px;max-height:calc(100vh - 32px);overflow-y:auto;border-radius:20px;
+.sheet{background:var(--card);width:100%;max-width:520px;max-height:calc(100vh - 32px);overflow-y:auto;overscroll-behavior:contain;border-radius:20px;
   border:1px solid var(--edge);box-shadow:4px 4px 0 var(--edge);padding:20px 20px 18px}
 .sheet h3{font-size:21px;font-weight:800;margin-bottom:10px}
 .sheet p{margin-bottom:10px;font-weight:500}
@@ -252,6 +255,9 @@ body.resizing iframe{pointer-events:none}
   .menu-item{padding:11px 12px;font-size:15.5px}
   .scrim{align-items:flex-end;padding:0}
   .sheet{border-radius:22px 22px 0 0;max-height:92vh;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+  /* Keeps the last rows and buttons clear of the phone's gesture bar. */
+  .col-foot{padding-bottom:calc(14px + env(safe-area-inset-bottom))}
+  .post-scroll{padding-bottom:env(safe-area-inset-bottom)}
   .toast{bottom:calc(16px + env(safe-area-inset-bottom))}
 }
 @media (max-width:420px){

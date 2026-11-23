@@ -27,7 +27,7 @@ function readJSON(key, fallback) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
 }
 function writeJSON(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full or blocked: nothing to do */ }
+  try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; /* storage full or blocked */ }
 }
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -149,12 +149,15 @@ async function deleteFile(path, message) {
 
 // ---------- Reading progress and bookmarks ----------
 // "saved" is the last copy loaded from GitHub. Changes not yet saved wait in
-// "pending" (also kept in this browser, so closing the tab loses nothing).
-// What's shown is saved + pending.
+// "pending", which lives in this browser's storage, so closing the tab loses
+// nothing and two open tabs share one queue. What's shown is saved + pending.
 
 const emptyState = () => ({ read: {}, bookmarks: {}, feedSort: 'az', feedOrder: [] });
+const newKey = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 let saved = readJSON('reader-saved', emptyState());
+let pendingStored = true; // false if this browser couldn't store the queue, so this tab keeps its own
 let pending = readJSON('reader-pending', []);
+if (pending.some((op) => !op.key)) { for (const op of pending) op.key = op.key || newKey(); writePending(); }
 let state = applyAll(saved, pending);
 let syncStatus = 'ok';
 let saveTimer = null;
@@ -180,13 +183,32 @@ function applyAll(base, ops) {
   return s;
 }
 
+// The queue as stored now, including changes made in other tabs.
+function freshPending() {
+  return pendingStored ? readJSON('reader-pending', pending) : pending;
+}
+function writePending() {
+  pendingStored = writeJSON('reader-pending', pending);
+}
+
 function change(op) {
   op.t = op.t || nowSec();
+  op.key = newKey();
+  pending = freshPending();
   pending.push(op);
-  writeJSON('reader-pending', pending);
+  writePending();
   applyOp(state, op);
   scheduleSave(SAVE_DELAY);
 }
+
+// Another tab changed the queue or saved: show what it did.
+window.addEventListener('storage', (e) => {
+  if (e.key === 'reader-pending' && pendingStored) pending = readJSON('reader-pending', []);
+  else if (e.key === 'reader-saved') { saved = readJSON('reader-saved', saved); saveCount++; }
+  else return;
+  const merged = applyAll(saved, pending);
+  if (JSON.stringify(merged) !== JSON.stringify(state)) { state = merged; renderAll(); } else showSync();
+});
 
 function scheduleSave(delay) {
   clearTimeout(saveTimer);
@@ -204,47 +226,16 @@ function prune(s) {
 
 async function saveNow() {
   if (saving || !token) return;
+  pending = freshPending();
   if (!pending.length) { syncStatus = 'ok'; showSync(); return; }
   saving = true;
   syncStatus = 'saving';
   showSync();
-  let conflicts = 0;
   try {
-    // Keeps going while changes are waiting, including ones made during a save.
-    while (pending.length) {
-      const batch = pending.slice();
-      // Bookmarked posts' text is saved as its own file first.
-      for (const op of batch) {
-        if (op.done) continue;
-        if (op.op === 'bookmark' && op.html != null) {
-          try { await putFile(`Bookmarks/${op.post.id}.html`, op.html, null, 'Save bookmarked post'); }
-          catch (err) { if (err.status !== 422) throw err; } // 422: the file is already there
-        } else if (op.op === 'unbookmark') {
-          await deleteFile(`Bookmarks/${op.id}.html`, 'Remove bookmarked post');
-        }
-        op.done = true;
-        delete op.html;
-        writeJSON('reader-pending', pending);
-      }
-      const remote = await getFile('State.json');
-      const base = remote ? JSON.parse(remote.text) : emptyState();
-      const next = applyAll(base, batch);
-      prune(next);
-      try {
-        await putFile('State.json', JSON.stringify(next), remote && remote.sha, 'Update reading progress');
-      } catch (err) {
-        if ((err.status === 409 || err.status === 422) && ++conflicts < 5) { // another device saved first: reload and try again
-          await new Promise((r) => setTimeout(r, 800 * conflicts));
-          continue;
-        }
-        throw err;
-      }
-      pending.splice(0, batch.length);
-      writeJSON('reader-pending', pending);
-      saved = next;
-      saveCount++;
-      writeJSON('reader-saved', saved);
-    }
+    // One tab saves at a time. A tab that waits here finds its changes
+    // already saved by the other one.
+    if (navigator.locks) await navigator.locks.request('minreader-save', saveQueue);
+    else await saveQueue();
     syncStatus = 'ok';
     // Shows anything another device saved in the meantime.
     const merged = applyAll(saved, pending);
@@ -256,6 +247,51 @@ async function saveNow() {
   saving = false;
   showSync();
   if (pending.length && syncStatus === 'error') scheduleSave(30e3);
+}
+
+async function saveQueue() {
+  let conflicts = 0;
+  // Keeps going while changes are waiting, including ones made during a save.
+  for (;;) {
+    pending = freshPending();
+    if (!pending.length) return;
+    const batch = pending.slice();
+    // Bookmarked posts' text is saved as its own file first.
+    for (const op of batch) {
+      if (op.done) continue;
+      if (op.op === 'bookmark' && op.html != null) {
+        try { await putFile(`Bookmarks/${op.post.id}.html`, op.html, null, 'Save bookmarked post'); }
+        catch (err) { if (err.status !== 422) throw err; } // 422: the file is already there
+      } else if (op.op === 'unbookmark') {
+        await deleteFile(`Bookmarks/${op.id}.html`, 'Remove bookmarked post');
+      }
+      op.done = true;
+      delete op.html;
+      pending = freshPending();
+      const stored = pending.find((o) => o.key === op.key);
+      if (stored) { stored.done = true; delete stored.html; }
+      writePending();
+    }
+    const remote = await getFile('State.json');
+    const base = remote ? JSON.parse(remote.text) : emptyState();
+    const next = applyAll(base, batch);
+    prune(next);
+    try {
+      await putFile('State.json', JSON.stringify(next), remote && remote.sha, 'Update reading progress');
+    } catch (err) {
+      if ((err.status === 409 || err.status === 422) && ++conflicts < 5) { // another device saved first: reload and try again
+        await new Promise((r) => setTimeout(r, 800 * conflicts));
+        continue;
+      }
+      throw err;
+    }
+    const done = new Set(batch.map((op) => op.key));
+    pending = freshPending().filter((op) => !done.has(op.key));
+    writePending();
+    saved = next;
+    saveCount++;
+    writeJSON('reader-saved', saved);
+  }
 }
 
 // Loads the latest progress saved by any device.
@@ -392,14 +428,13 @@ function unreadCounts() {
 // ---------- Views ----------
 
 let view = readJSON('reader-view', 'all');  // 'all', 'unread', 'bookmarks' or 'feed:<id>'
-let current = null;
-let openedHere = new Set(); // posts opened from Unread, kept listed until you go to another list                       // the open post
+let current = null;             // the open post
+let openedHere = new Set();     // posts opened from Unread, kept listed until you go to another list
 let shownCount = PAGE_SIZE;
 
 function postsForView() {
   if (view === 'bookmarks') return Object.values(state.bookmarks).sort((a, b) => b.saved - a.saved);
   const posts = livePosts();
-  // Read posts leave Unread. On a computer the open post stays until you open another.
   // Read posts leave Unread, but posts opened here stay until you go to another list.
   if (view === 'unread') return posts.filter((p) => !isRead(p.id) || openedHere.has(p.id));
   if (view.startsWith('feed:')) { const id = view.slice(5); return posts.filter((p) => p.feed === id); }
@@ -454,7 +489,7 @@ function renderFeeds() {
     const warn = f.error ? `<span class="warn-dot" title="${esc(f.error)}">!</span>` : '';
     const extra = addingFeeds.has(f.id) ? '<span class="count">adding…</span>' : `<span class="count">${n || ''}</span>`;
     return `<li data-feed="${esc(f.id)}"><button class="feed-item${view === 'feed:' + f.id ? ' active' : ''}${n ? ' has-unread' : ''}" data-feed="${esc(f.id)}">
-      ${faviconHTML(f)}<span class="nm">${esc(f.title)}</span>${warn}${extra}</button>${addingFeeds.has(f.id) ? '' : `<button class="row-more" title="More options" aria-label="More options for ${esc(f.title)}"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/></svg></button>`}</li>`;
+      ${faviconHTML(f)}<span class="nm">${esc(f.title)}</span>${warn}${extra}</button>${addingFeeds.has(f.id) ? '' : `<button class="row-more" tabindex="-1" title="More options" aria-label="More options for ${esc(f.title)}"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/></svg></button>`}</li>`;
   });
   $('#feedList').innerHTML = list.join('') || '<li class="empty">No feeds yet.</li>';
 }
@@ -467,10 +502,10 @@ function postRowHTML(p) {
   const thumb = webUrl(p.image) ? `<img class="thumb" src="${esc(p.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '';
   const read = isRead(p.id), marked = !!state.bookmarks[p.id];
   const actions = `<span class="post-actions">
-    ${postsById.has(p.id) ? `<button data-act="read" title="${read ? 'Mark as unread' : 'Mark as read'}"><svg viewBox="0 0 24 24">${read ? ICONS.circle : ICONS.check}</svg></button>` : ''}
-    <button data-act="bookmark" class="${marked ? 'on' : ''}" title="${marked ? 'Remove bookmark' : 'Bookmark'}"><svg viewBox="0 0 24 24">${ICONS.bookmark}</svg></button>
-    ${webUrl(p.link) ? `<button data-act="open" title="Open original"><svg viewBox="0 0 24 24">${ICONS.open}</svg></button>` : ''}</span>`;
-  return `<li class="post${cls}${thumb ? ' with-thumb' : ''}${current && current.id === p.id ? ' active' : ''}" data-id="${esc(p.id)}">
+    ${postsById.has(p.id) ? `<button data-act="read" title="${read ? 'Mark as unread' : 'Mark as read'}" aria-label="${read ? 'Mark as unread' : 'Mark as read'}"><svg viewBox="0 0 24 24">${read ? ICONS.circle : ICONS.check}</svg></button>` : ''}
+    <button data-act="bookmark" class="${marked ? 'on' : ''}" title="${marked ? 'Remove bookmark' : 'Bookmark'}" aria-label="${marked ? 'Remove bookmark' : 'Bookmark'}"><svg viewBox="0 0 24 24">${ICONS.bookmark}</svg></button>
+    ${webUrl(p.link) ? `<button data-act="open" title="Open original" aria-label="Open original"><svg viewBox="0 0 24 24">${ICONS.open}</svg></button>` : ''}</span>`;
+  return `<li class="post${cls}${thumb ? ' with-thumb' : ''}${current && current.id === p.id ? ' active' : ''}" data-id="${esc(p.id)}" tabindex="0">
     <div class="txt"><div class="t">${esc(p.title)}</div>${p.summary ? `<div class="s">${esc(p.summary)}</div>` : ''}</div>${thumb}
     <div class="m">${faviconHTML(f)}<span class="fname">${esc(f.title)}</span><span class="ago">· ${ago(p.date)}</span>${bm}${actions}</div></li>`;
 }
@@ -512,7 +547,7 @@ function renderPosts() {
   }
   empty.hidden = !(postsLoadError && view !== 'bookmarks') && posts.length > 0;
   const shown = (postsLoadError && view !== 'bookmarks') ? [] : posts.slice(0, shownCount);
-  $('#postList').innerHTML = shown.map(postRowHTML).join('');
+  keepFocus(() => { $('#postList').innerHTML = shown.map(postRowHTML).join(''); });
   $('#moreSentinel').dataset.more = posts.length > shownCount ? '1' : '';
 }
 
@@ -550,6 +585,18 @@ function setLabel(button, long, short) {
   button.title = long;
 }
 
+// Redrawing replaces post rows, so this puts keyboard focus back on the
+// same post (and the same button in it) afterwards.
+function keepFocus(draw) {
+  const el = document.activeElement;
+  const row = el && el.closest && el.closest('.post');
+  draw();
+  if (!row || document.contains(el)) return;
+  const again = document.querySelector(`.post[data-id="${CSS.escape(row.dataset.id)}"]`);
+  const target = again && ((el.dataset.act && again.querySelector(`[data-act="${el.dataset.act}"]`)) || again);
+  if (target) target.focus({ preventScroll: true });
+}
+
 // Updates one row in place, so the list doesn't jump while you read.
 function refreshRow(id) {
   const row = document.querySelector(`.post[data-id="${CSS.escape(id)}"]`);
@@ -557,15 +604,19 @@ function refreshRow(id) {
   if (row && post) {
     const tmp = document.createElement('template');
     tmp.innerHTML = postRowHTML(post).trim();
-    row.replaceWith(tmp.content.firstChild);
+    keepFocus(() => row.replaceWith(tmp.content.firstChild));
   }
 }
 // Redraws a post's row, or takes it out of (or puts it back in) Unread.
 function updateRow(id) {
   const row = document.querySelector(`.post[data-id="${CSS.escape(id)}"]`);
   const listed = postsForView().some((p) => p.id === id);
-  if (row && !listed && document.querySelectorAll('.post').length > 1) row.remove();
-  else if (!!row !== listed) renderPosts();
+  if (row && !listed && document.querySelectorAll('.post').length > 1) {
+    // Keyboard focus moves on to the next post instead of getting lost.
+    const next = row.contains(document.activeElement) && (row.nextElementSibling || row.previousElementSibling);
+    row.remove();
+    if (next) next.focus({ preventScroll: true });
+  } else if (!!row !== listed) renderPosts();
   else refreshRow(id);
 }
 function refreshCounts() {
@@ -675,7 +726,13 @@ window.addEventListener('popstate', (e) => {
 // Unread). The back gesture still goes to the feed list, but Chrome skips
 // history entries added before the first tap, so that entry goes in at the
 // first tap (a pointerup or key press counts as one).
-if (isPhone()) {
+const restored = history.state && history.state.pane && !history.state.beforeFirstTap;
+if (isPhone() && restored) {
+  // A reload: this history step and the ones before it are already there.
+  // No post is open after a reload, so the open-post step goes back a step.
+  if (history.state.pane === 'post') { $('#layout').dataset.pane = 'posts'; history.back(); }
+  else $('#layout').dataset.pane = history.state.pane;
+} else if (isPhone()) {
   $('#layout').dataset.pane = 'posts';
   history.replaceState({ pane: 'posts', beforeFirstTap: true }, '');
   const addFeedsStep = () => {
@@ -706,7 +763,7 @@ $('#feedList').addEventListener('click', (e) => {
   if (more) {
     const items = feedMenu(feedsById.get(more.closest('li').dataset.feed));
     const r = more.getBoundingClientRect();
-    if (items) openMenu(items, r.right - 230, r.bottom + 4);
+    if (items) openMenu(items, r.right - 230, r.bottom + 4, e.detail === 0);
     return;
   }
   const b = e.target.closest('.feed-item');
@@ -725,6 +782,17 @@ $('#postList').addEventListener('click', (e) => {
   }
   const row = e.target.closest('.post');
   if (row) openPost(row.dataset.id);
+});
+// Keyboard: Enter or Space opens the focused post, the arrow keys move between posts.
+$('#postList').addEventListener('keydown', (e) => {
+  const row = e.target;
+  if (!row.matches('.post') || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPost(row.dataset.id); }
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    const next = e.key === 'ArrowDown' ? row.nextElementSibling : row.previousElementSibling;
+    e.preventDefault();
+    if (next) next.focus();
+  }
 });
 document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => history.back()));
 
@@ -859,7 +927,11 @@ function toast(text, undo) {
 
 // ---------- Dialogs ----------
 
+let modalReturn = null; // what had focus before the dialog opened
+
 function openModal({ title, body, actions, onOpen, wide }) {
+  if (!$('#modal').classList.contains('show')) modalReturn = document.activeElement;
+  closeMenu();
   $('#modalTitle').textContent = title;
   $('#modalBody').innerHTML = body;
   const box = $('#modalActions');
@@ -873,11 +945,23 @@ function openModal({ title, body, actions, onOpen, wide }) {
   }
   $('.sheet').classList.toggle('wide', !!wide);
   $('#modal').classList.add('show');
+  // Keeps the keyboard inside the dialog.
+  $('.topbar').inert = $('#layout').inert = true;
   if (onOpen) onOpen();
 }
-function closeModal() { $('#modal').classList.remove('show'); }
+function closeModal() {
+  if (!$('#modal').classList.contains('show')) return;
+  $('#modal').classList.remove('show');
+  $('.topbar').inert = $('#layout').inert = false;
+  if (modalReturn && document.contains(modalReturn)) modalReturn.focus({ preventScroll: true });
+  modalReturn = null;
+}
 $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal' && token) closeModal(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && token) closeModal(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!$('#menu').hidden) closeMenu(true);
+  else if (token) closeModal();
+});
 
 function busy(button, label) {
   button.disabled = true;
@@ -1063,7 +1147,10 @@ const ICONS = {
   readall: '<path d="M2 13l4 4 9-10"/><path d="M10.5 16l1 1 9-10"/>',
 };
 
-function openMenu(items, x, y) {
+let menuReturn = null; // what had focus before the menu opened
+
+// fromKeys: the menu was opened with the keyboard, so its first item gets focus.
+function openMenu(items, x, y, fromKeys) {
   const menu = $('#menu');
   menu.onclick = null;
   menu.innerHTML = '';
@@ -1077,20 +1164,38 @@ function openMenu(items, x, y) {
     b.addEventListener('click', () => { closeMenu(); item.onClick(); });
     menu.appendChild(b);
   }
-  placeMenu(x, y);
+  placeMenu(x, y, fromKeys);
 }
-function placeMenu(x, y) {
+function placeMenu(x, y, fromKeys) {
   const menu = $('#menu');
+  if (menu.hidden) menuReturn = document.activeElement;
   menu.hidden = false;
   const r = menu.getBoundingClientRect();
   menu.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + 'px';
   menu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
+  if (fromKeys) { const first = menu.querySelector('button:not(:disabled)'); if (first) first.focus(); }
 }
-function closeMenu() { $('#menu').hidden = true; }
+// giveFocusBack: closed with Escape, so focus goes back where it was.
+function closeMenu(giveFocusBack) {
+  const menu = $('#menu');
+  if (menu.hidden) return;
+  const hadFocus = menu.contains(document.activeElement);
+  menu.hidden = true;
+  if ((giveFocusBack || hadFocus) && menuReturn && document.contains(menuReturn)) menuReturn.focus({ preventScroll: true });
+  menuReturn = null;
+}
+// Up and down arrows move through the menu.
+$('#menu').addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  e.preventDefault();
+  const items = [...$('#menu').querySelectorAll('button:not(:disabled)')];
+  const i = items.indexOf(document.activeElement);
+  const next = items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
+  if (next) next.focus();
+});
 document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#menu')) closeMenu(); }, true);
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
-window.addEventListener('resize', closeMenu);
-document.addEventListener('scroll', closeMenu, true);
+window.addEventListener('resize', () => closeMenu());
+document.addEventListener('scroll', (e) => { if (e.target !== $('#menu')) closeMenu(); }, true);
 
 function feedMenu(feed) {
   if (!feed || addingFeeds.has(feed.id)) return null;
@@ -1125,7 +1230,7 @@ function menuFor(el) {
 $('#moreFeedBtn').addEventListener('click', (e) => {
   const items = feedMenu(feedsById.get(view.slice(5)));
   const r = e.currentTarget.getBoundingClientRect();
-  if (items) openMenu(items, r.right - 230, r.bottom + 6);
+  if (items) openMenu(items, r.right - 230, r.bottom + 6, e.detail === 0);
 });
 
 // Sorting
@@ -1148,7 +1253,7 @@ const SORT_ROWS = [
 const ARROW_UP = '<path d="M12 19V5M6 11l6-6 6 6"/>';
 const ARROW_DOWN = '<path d="M12 5v14M6 13l6 6 6-6"/>';
 
-function showSortMenu(x, y) {
+function showSortMenu(x, y, fromKeys) {
   const now = state.feedSort || 'az';
   const menu = $('#menu');
   menu.innerHTML = '<div class="menu-head">Sort feeds</div>' + SORT_ROWS.map((row, i) => {
@@ -1172,15 +1277,18 @@ function showSortMenu(x, y) {
     }
     if (!sort) return;
     menu.onclick = null;
+    const focused = menu.contains(document.activeElement) && e.detail === 0;
+    const which = dir ? `[data-sort="${sort}"]` : `[data-row="${rowBtn.dataset.row}"]`;
     setSort(sort);
     showSortMenu(x, y); // stays open so the change is visible
+    if (focused) menu.querySelector(which).focus();
   };
-  placeMenu(x, y);
+  placeMenu(x, y, fromKeys);
 }
 
 $('#sortBtn').addEventListener('click', (e) => {
   const r = e.currentTarget.getBoundingClientRect();
-  showSortMenu(r.left, r.bottom + 6);
+  showSortMenu(r.left, r.bottom + 6, e.detail === 0);
 });
 
 // ---------- Pressing, dragging and right-clicking ----------
@@ -1261,7 +1369,10 @@ document.addEventListener('contextmenu', (e) => {
   e.preventDefault();
   if (press && press.type !== 'mouse') return; // a long press is handled above
   const items = menuFor(el);
-  if (items) openMenu(items, e.clientX, e.clientY);
+  if (!items) return;
+  // The keyboard's menu key (or Shift+F10) has no pointer, so the menu opens under the row.
+  if (!e.pointerType || e.button < 0) { const r = el.getBoundingClientRect(); openMenu(items, r.left + 16, r.bottom - 6, true); }
+  else openMenu(items, e.clientX, e.clientY);
 });
 
 function startDrag() {
