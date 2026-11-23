@@ -234,6 +234,9 @@ body.resizing iframe{pointer-events:none}
   .layout[data-pane="posts"] .posts-col,
   .layout[data-pane="post"] .read-col{display:flex}
   .col-head .back{display:grid}
+  /* On a phone the feed list is its own screen, so nothing in it is "open" yet. */
+  .view-btn.active,.feed-item.active{background:none;border-color:transparent;box-shadow:none}
+  .active .count{background:var(--accent-soft)}
   .reader-bar{flex-wrap:nowrap;gap:6px}
   .reader-bar .btn{padding:5px 9px;font-size:13.5px;gap:5px}
   .reader-bar .btn .long,#markAllBtn .long{display:none}
