@@ -1,8 +1,8 @@
 'use strict';
 
 /* MinReader
-   Posts come from data/index.json, which GitHub Actions rebuilds every 30
-   minutes. Reading progress and bookmarks are saved to State.json in the
+   Posts come from data/index.json, which GitHub Actions rebuilds every 15
+   minutes (or sooner, when the page asks). Reading progress and bookmarks are saved to State.json in the
    GitHub repo (and each bookmarked post's text to Bookmarks/<id>.html),
    using the access key saved in this browser, so every device shows the same
    thing. */
@@ -366,6 +366,7 @@ async function loadPosts() {
   }
   // Only redraws when something changed, so the list doesn't jump while you read.
   if (changed || postsLoadError !== errorBefore) renderAll(); else showUpdated();
+  updateIfStale();
 }
 
 async function postContent(post) {
@@ -864,12 +865,25 @@ async function addBookmark(post, html) {
   renderReaderBar();
 }
 
-// The refresh button asks GitHub to check every feed now (instead of waiting
-// for the next 30-minute run), then watches for the new posts. That needs the
-// access key to have the Actions permission; without it, the button just
-// loads whatever GitHub already has.
+// The refresh button asks GitHub to check every feed now, then watches for the
+// new posts. That needs the access key to have the Actions permission; without
+// it, the button just loads whatever GitHub already has.
 let refreshing = false;
-$('#refreshBtn').addEventListener('click', async () => {
+$('#refreshBtn').addEventListener('click', () => startUpdate(false));
+
+// GitHub often skips its scheduled runs, so when the posts are this old the
+// reader starts an update itself, quietly, like pressing refresh.
+const STALE_AFTER = 20 * 60;   // seconds
+let lastAutoUpdate = 0;
+function updateIfStale() {
+  if (!token || !index || refreshing || document.hidden) return;
+  if (nowSec() - index.updated < STALE_AFTER || Date.now() - lastAutoUpdate < 10 * 60e3) return;
+  lastAutoUpdate = Date.now();
+  startUpdate(true);
+}
+
+// quiet: started on its own, so no messages unless something needs doing.
+async function startUpdate(quiet) {
   if (refreshing) return;
   refreshing = true;
   const btn = $('#refreshBtn');
@@ -882,10 +896,11 @@ $('#refreshBtn').addEventListener('click', async () => {
       started = true;
     } catch (err) { noPermission = err.status === 403 || err.status === 404; }
   }
-  await Promise.all([loadPosts(), loadState(), new Promise((r) => setTimeout(r, 700))]);
+  if (!quiet) await Promise.all([loadPosts(), loadState(), new Promise((r) => setTimeout(r, 700))]);
   if (!started) {
     btn.classList.remove('spinning');
     refreshing = false;
+    if (quiet) return;
     const fresh = index && index.updated !== before;
     if (noPermission && !localStorage.getItem('reader-actions-tip')) {
       localStorage.setItem('reader-actions-tip', '1');
@@ -893,7 +908,7 @@ $('#refreshBtn').addEventListener('click', async () => {
     } else toast(fresh ? 'New posts loaded.' : 'You’re up to date.');
     return;
   }
-  toast('Checking your feeds. New posts will show up in a minute or two.');
+  if (!quiet) toast('Checking your feeds. New posts will show up in a minute or two.');
   // Watches for the new data for up to 5 minutes, then stops.
   const until = Date.now() + 5 * 60e3;
   while (Date.now() < until) {
@@ -903,13 +918,13 @@ $('#refreshBtn').addEventListener('click', async () => {
   }
   btn.classList.remove('spinning');
   refreshing = false;
-  if (index && index.updated !== before) toast('Your feeds are up to date.');
+  if (index && index.updated !== before) { if (!quiet) toast('Your feeds are up to date.'); }
   else {
     // GitHub is slow today. Keeps looking every 30 seconds for a while.
     fastCheckUntil = Date.now() + 10 * 60e3;
-    toast('The check is taking longer than usual. New posts will show up on their own.');
+    if (!quiet) toast('The check is taking longer than usual. New posts will show up on their own.');
   }
-});
+}
 
 // ---------- Toast ----------
 

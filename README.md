@@ -1,6 +1,6 @@
 # MinReader
 
-My RSS reader. GitHub checks the feeds every 30 minutes and hosts the page.
+My RSS reader. GitHub checks the feeds every 15 minutes and hosts the page. GitHub sometimes skips those checks, so the page also starts one when its posts are 20 minutes old.
 
 **Address:** https://ydnim.github.io/MinReader/
 

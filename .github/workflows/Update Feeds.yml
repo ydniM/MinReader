@@ -2,7 +2,9 @@ name: Update Feeds
 
 on:
   schedule:
-    - cron: "7,37 * * * *"   # every 30 minutes (at :07 and :37, since GitHub is busiest right on the hour)
+    # Every 15 minutes, off the busy top of the hour. GitHub still skips some
+    # runs, so the page also starts an update when its posts are 20 minutes old.
+    - cron: "4,19,34,49 * * * *"
   workflow_dispatch:          # adds a "Run workflow" button so you can run it any time
   push:
     branches: [main]

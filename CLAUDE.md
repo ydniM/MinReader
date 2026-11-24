@@ -8,7 +8,9 @@ she asks.
 
 ## How it works
 
-- `Fetch Feeds.py` runs in GitHub Actions every 30 minutes (`Update Feeds.yml`). It reads
+- `Fetch Feeds.py` runs in GitHub Actions every 15 minutes (`Update Feeds.yml`). GitHub
+  often skips scheduled runs, so the page starts an update itself (`updateIfStale`, same as
+  the refresh button but quiet) when `index.updated` is over 20 minutes old. It reads
   `Feeds.json`, keeps posts for 30 days (max 300 per feed), and writes `data/index.json`
   (feed list plus post metadata) and `data/content/<first 2 chars of id>.json` (sanitized
   post HTML, via nh3; feedparser's own sanitizing is off because it drops `srcset`). The

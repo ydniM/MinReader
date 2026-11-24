@@ -1,6 +1,6 @@
 """Fetches every feed in Feeds.json and writes the reader's data files.
 
-GitHub Actions runs this every 30 minutes. It reads the posts saved by the
+GitHub Actions runs this every 15 minutes. It reads the posts saved by the
 last run from the data folder (GitHub keeps that folder between runs), adds
 any new posts, drops posts older than KEEP_DAYS, and writes:
 
@@ -204,7 +204,13 @@ def fetch_feed(feed):
         if not parsed.entries and not parsed.feed.get("title"):
             found = find_feed_link(response.text, response.url)
             if not found:
-                return None, "This address is a web page, not a feed, and the page doesn't list a feed."
+                # Names the page, since a site that blocks automatic checks sends
+                # a bot check page instead of its feed.
+                title = re.search(r"<title[^>]*>(.*?)</title>", response.text, re.I | re.S)
+                title = plain_text(title.group(1))[:80] if title else ""
+                named = f' (“{title}”)' if title else ""
+                return None, (f"The website sent a web page{named} instead of a feed. If the address works in your "
+                              "browser, the website is probably blocking automatic checks like GitHub’s.")
             found_response = download(found)
             parsed = parse(found_response.content, found_response.headers.get("content-type", ""))
         if parsed.bozo and not parsed.entries:

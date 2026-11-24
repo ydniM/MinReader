@@ -76,6 +76,7 @@ def write_feeds(folder):
                  extra='<media:thumbnail url="javascript:alert(5)"/><enclosure url="javascript:alert(6)" type="image/jpeg"/>'),
             item("Math: a &lt; b and c &gt; d", "https://evil.example/math", 3, "<p>Less than and more than.</p>", guid="evil-2"),
         ]),
+        "Blocked.html": "<html><head><title>Making sure you're not a bot!</title></head><body>Checking…</body></html>",
         "Page.html": '<html><head><link rel="alternate" type="application/rss+xml" href="Garden2.xml"></head><body>Hi</body></html>',
         "Garden2.xml": rss("Found Through Page", "https://found.example/", [item("Found post", "https://found.example/1", 5, "<p>Found</p>")]),
     }
@@ -108,6 +109,7 @@ def build_site():
     write_feeds(os.path.join(site, "_feeds"))
     feeds = [{"title": "", "url": f"{ORIGIN}/feeds/{n}"} for n in ("Cozy.xml", "Garden.xml", "Big.xml", "Evil.xml", "Page.html")]
     feeds.append({"title": "Broken Feed", "url": f"{ORIGIN}/feeds/Missing.xml"})
+    feeds.append({"title": "Bot Check", "url": f"{ORIGIN}/feeds/Blocked.html"})
     with open(os.path.join(site, "Feeds.json"), "w", encoding="utf-8") as handle:
         json.dump({"feeds": feeds}, handle, indent=2)
     return site
@@ -209,7 +211,7 @@ def test_python_build(site):
         content.update(json.load(open(os.path.join(site, "data", "content", name), encoding="utf-8")))
     everything = json.dumps(data) + json.dumps(content)
     feeds = {f["title"]: f for f in data["feeds"]}
-    check("python: every feed is listed", len(data["feeds"]) == 6, [f["title"] for f in data["feeds"]])
+    check("python: every feed is listed", len(data["feeds"]) == 7, [f["title"] for f in data["feeds"]])
     check("python: no javascript: anywhere in the data", "javascript:" not in everything.lower())
     check("python: scripts, styles, iframes and event handlers are removed",
           not re.search(r"<script|<style|<iframe|onclick", everything, re.I))
@@ -224,6 +226,7 @@ def test_python_build(site):
           [p["title"] for p in data["posts"] if p["title"].startswith("Math")])
     check("python: a web page's advertised feed is found", "Found Through Page" in feeds)
     check("python: a missing feed shows an error", feeds["Broken Feed"]["error"].startswith("The website answered with error 404"), feeds["Broken Feed"]["error"])
+    check("python: a bot check page says what it got", "web page (“Making sure you're not a bot!”) instead of a feed" in feeds["Bot Check"]["error"], feeds["Bot Check"]["error"])
     check("python: 150 posts kept from the big feed", sum(1 for p in data["posts"] if p["feed"] == feeds["Big Feed"]["id"]) == 150)
 
 
@@ -406,7 +409,7 @@ def test_desktop_sorting(browser):
     check("desktop: dragging a feed moves it", moved[2] == start[0], moved)
     check("desktop: dragging switches to Custom", page.evaluate("state.feedSort") == "custom")
     check("desktop: a drag doesn't open the feed", page.evaluate("view") == "all")
-    ok = wait_for(lambda: remote_state().get("feedSort") == "custom" and len(remote_state().get("feedOrder", [])) == 6)
+    ok = wait_for(lambda: remote_state().get("feedSort") == "custom" and len(remote_state().get("feedOrder", [])) == 7)
     check("desktop: custom order is saved", ok, remote_state().get("feedOrder"))
     page.click("#sortBtn")
     page.click('.dir[data-sort="za"]')
@@ -574,6 +577,32 @@ def test_desktop_installable(browser):
         check(f"desktop: icon {icon['src']} is published", res.ok)
     ctx.close()
     shutil.rmtree(profile, ignore_errors=True)
+
+
+def test_desktop_auto_update(browser):
+    api("reset", {})
+    ctx = new_context(browser)
+    page = open_page(ctx)
+    page.wait_for_timeout(2500)
+    check("desktop: fresh posts don't start an update", api("log")["dispatches"] == [], api("log")["dispatches"])
+    ctx.close()
+
+    def old_index(route):
+        data = json.loads(route.fetch().text())
+        data["updated"] -= 3600  # an hour old, like after GitHub skipped its runs
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
+
+    ctx = new_context(browser)
+    ctx.route("**/data/index.json*", old_index)
+    page = open_page(ctx)
+    check("desktop: hour-old posts start an update on their own", wait_for(lambda: len(api("log")["dispatches"]) == 1, 6), api("log")["dispatches"])
+    check("desktop: and it's quiet about it", page.locator("#toast").is_hidden())
+    check("desktop: the refresh button spins meanwhile", "spinning" in (page.locator("#refreshBtn").get_attribute("class") or ""))
+    page.wait_for_timeout(3000)
+    page.evaluate("loadPosts()")
+    page.wait_for_timeout(1000)
+    check("desktop: it doesn't start another one right away", len(api("log")["dispatches"]) == 1, api("log")["dispatches"])
+    ctx.close()
 
 
 # ---------- Phone ----------
