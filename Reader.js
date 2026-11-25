@@ -524,7 +524,7 @@ function renderPosts() {
 
   const markBtn = $('#markAllBtn');
   markBtn.hidden = view === 'bookmarks';
-  markBtn.disabled = unread === 0;
+  markBtn.disabled = unread === 0 && !(view === 'unread' && posts.length);
   setLabel(markBtn, isFeed ? 'Mark feed as read' : 'Mark all as read', 'Mark read');
   $('#moreFeedBtn').hidden = !isFeed || addingFeeds.has(view.slice(5));
 
@@ -626,7 +626,8 @@ function refreshCounts() {
   const unread = view === 'bookmarks' ? 0 : posts.filter((p) => !isRead(p.id)).length;
   if (view !== 'bookmarks') $('#viewCount').textContent = `${unread} unread`;
   else $('#viewCount').textContent = `${posts.length} ${posts.length === 1 ? 'bookmark' : 'bookmarks'}`;
-  $('#markAllBtn').disabled = unread === 0;
+  // In Unread it stays on while opened posts are still listed, so they can be cleared too.
+  $('#markAllBtn').disabled = unread === 0 && !(view === 'unread' && posts.length);
 }
 
 // ---------- Reading a post ----------
@@ -798,12 +799,17 @@ $('#postList').addEventListener('keydown', (e) => {
 document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => history.back()));
 
 // Marks a group of posts read, with an Undo button in case it was a slip.
+// Posts kept in Unread because they were opened there leave with the rest.
 function markRead(posts) {
   const ids = posts.filter((p) => !isRead(p.id)).map((p) => p.id);
-  if (!ids.length) return;
-  change({ op: 'read', ids });
+  const opened = posts.filter((p) => openedHere.has(p.id)).map((p) => p.id);
+  if (!ids.length && !opened.length) return;
+  for (const id of opened) openedHere.delete(id);
+  if (ids.length) change({ op: 'read', ids });
   renderAll();
+  if (!ids.length) return;
   toast(`Marked ${ids.length} ${ids.length === 1 ? 'post' : 'posts'} as read.`, () => {
+    for (const id of opened) openedHere.add(id);
     change({ op: 'unread', ids });
     renderAll();
   });

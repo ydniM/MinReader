@@ -52,7 +52,8 @@ she asks.
 - Opening a post marks it read. Nothing is auto-selected when a list opens. In the Unread
   view, read posts leave the list, but posts she opened there stay (`openedHere`) until she
   goes to another list or feed, so an accidental click doesn't make one vanish. Marking one
-  read with its check button removes it right away, with Undo.
+  read with its check button removes it right away, with Undo. Mark all as read clears the
+  opened ones too, and stays clickable while any are still listed.
 - Under 800px wide it shows one column at a time; each step deeper is a history entry so the
   phone's back gesture works. A reload keeps the existing history steps (on the open-post
   step it goes back one, since no post is open after a reload).
