@@ -617,6 +617,71 @@ def test_desktop_auto_update(browser):
     ctx.close()
 
 
+def test_desktop_mark_read_everywhere(browser):
+    """The column's button and every menu agree on what Mark as read does."""
+    api("reset", {})
+    ctx = new_context(browser)
+    page = open_page(ctx)
+    menus = {
+        "unread": ('.view-btn[data-view="unread"]', "Mark all as read"),
+        "all": ('.view-btn[data-view="all"]', "Mark all as read"),
+        "cozy": ('.feed-item:has-text("Cozy Blog")', "Mark feed as read"),
+    }
+
+    def menu_item(name):
+        target, label = menus[name]
+        page.click(target, button="right")
+        return page.locator("#menu .menu-item", has_text=label)
+
+    def menu_enabled(name):
+        enabled = menu_item(name).is_enabled()
+        page.keyboard.press("Escape")
+        return enabled
+
+    def agree(stage):
+        # Checked while staying in Unread, since leaving it lets opened posts go.
+        button, menu = page.locator("#markAllBtn").is_enabled(), menu_enabled("unread")
+        check(f"desktop: {stage}, the Unread button and the sidebar menu agree", button == menu, (button, menu))
+
+    # 1. Sidebar menu clears posts opened in Unread.
+    page.click('[data-view="unread"]')
+    row(page, "Cozy post 1").click()
+    agree("with an opened post")
+    menu_item("unread").click()
+    check("desktop: the sidebar's Mark all as read clears posts opened in Unread", page.locator(".post").count() == 0)
+    check("desktop: and greys out both buttons", page.locator("#markAllBtn").is_disabled() and not menu_enabled("unread"))
+    page.click("#toastUndo")
+    check("desktop: sidebar Undo brings them all back", row(page, "Cozy post 1").count() == 1 and page.locator(".post").count() > 1)
+
+    # 2. With only opened posts left, both are on, and the menu clears them.
+    keep = post_id(page, "Cozy post 1")
+    page.evaluate(f"change({{op: 'read', ids: postsForView().map(p => p.id).filter(id => id !== '{keep}')}}); renderAll()")
+    agree("with only an opened post left")
+    check("desktop: with only an opened post left, the sidebar menu is on", menu_enabled("unread"))
+    menu_item("unread").click()
+    check("desktop: and clears it", page.locator(".post").count() == 0)
+    agree("with Unread empty")
+
+    # 3. Every list: the column's button matches its menu item, before and after marking.
+    api("reset", {})
+    page.evaluate("localStorage.clear()")
+    ctx.close()
+    ctx = new_context(browser)
+    page = open_page(ctx)
+    for name, view in (("all", '[data-view="all"]'), ("cozy", '.feed-item:has-text("Cozy Blog")'), ("unread", '[data-view="unread"]')):
+        page.click(view)
+        check(f"desktop: {name}: button and menu agree with unread posts", page.locator("#markAllBtn").is_enabled() == menu_enabled(name) == True)
+        if name == "cozy":
+            page.click("#moreFeedBtn")
+            check("desktop: the feed's ⋯ menu agrees too", page.locator('#menu .menu-item:has-text("Mark feed as read")').is_enabled())
+            page.keyboard.press("Escape")
+        menu_item(name).click()
+        check(f"desktop: {name}: marking from the menu greys out both", page.locator("#markAllBtn").is_disabled() and not menu_enabled(name),
+              (page.locator("#markAllBtn").is_disabled(), menu_enabled(name)))
+        page.click("#toastUndo")
+    ctx.close()
+
+
 # ---------- Phone ----------
 
 def test_phone_panes_and_back(browser):

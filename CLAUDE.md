@@ -54,6 +54,9 @@ she asks.
   goes to another list or feed, so an accidental click doesn't make one vanish. Marking one
   read with its check button removes it right away, with Undo. Mark all as read clears the
   opened ones too, and stays clickable while any are still listed.
+- Every way to do one action shares one function, so they can't drift apart: Mark as read
+  (column button, sidebar menus, feed menus) uses `postsForView(v)`, `canMarkRead(v)` and
+  `markListRead(v)`; read, bookmark and open use `toggleRead`, `toggleBookmark` and `openLink`.
 - Under 800px wide it shows one column at a time; each step deeper is a history entry so the
   phone's back gesture works. A reload keeps the existing history steps (on the open-post
   step it goes back one, since no post is open after a reload).

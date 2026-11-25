@@ -433,14 +433,25 @@ let current = null;             // the open post
 let openedHere = new Set();     // posts opened from Unread, kept listed until you go to another list
 let shownCount = PAGE_SIZE;
 
-function postsForView() {
-  if (view === 'bookmarks') return Object.values(state.bookmarks).sort((a, b) => b.saved - a.saved);
+// The posts a list shows: the open one, or another (v) for its menu.
+function postsForView(v = view) {
+  if (v === 'bookmarks') return Object.values(state.bookmarks).sort((a, b) => b.saved - a.saved);
   const posts = livePosts();
   // Read posts leave Unread, but posts opened here stay until you go to another list.
-  if (view === 'unread') return posts.filter((p) => !isRead(p.id) || openedHere.has(p.id));
-  if (view.startsWith('feed:')) { const id = view.slice(5); return posts.filter((p) => p.feed === id); }
+  if (v === 'unread') return posts.filter((p) => !isRead(p.id) || openedHere.has(p.id));
+  if (v.startsWith('feed:')) { const id = v.slice(5); return posts.filter((p) => p.feed === id); }
   return posts;
 }
+
+// Whether "Mark as read" has anything to do for a list. The column's button and
+// every menu use this, so they always agree. In Unread it also counts opened
+// posts that are still listed, since marking all as read clears those too.
+function canMarkRead(v) {
+  if (v === 'bookmarks') return false;
+  const posts = postsForView(v);
+  return posts.some((p) => !isRead(p.id)) || (v === 'unread' && posts.length > 0);
+}
+function markListRead(v) { markRead(postsForView(v)); }
 
 function viewTitle() {
   if (view === 'all') return 'All posts';
@@ -524,7 +535,7 @@ function renderPosts() {
 
   const markBtn = $('#markAllBtn');
   markBtn.hidden = view === 'bookmarks';
-  markBtn.disabled = unread === 0 && !(view === 'unread' && posts.length);
+  markBtn.disabled = !canMarkRead(view);
   setLabel(markBtn, isFeed ? 'Mark feed as read' : 'Mark all as read', 'Mark read');
   $('#moreFeedBtn').hidden = !isFeed || addingFeeds.has(view.slice(5));
 
@@ -626,8 +637,7 @@ function refreshCounts() {
   const unread = view === 'bookmarks' ? 0 : posts.filter((p) => !isRead(p.id)).length;
   if (view !== 'bookmarks') $('#viewCount').textContent = `${unread} unread`;
   else $('#viewCount').textContent = `${posts.length} ${posts.length === 1 ? 'bookmark' : 'bookmarks'}`;
-  // In Unread it stays on while opened posts are still listed, so they can be cleared too.
-  $('#markAllBtn').disabled = unread === 0 && !(view === 'unread' && posts.length);
+  $('#markAllBtn').disabled = !canMarkRead(view);
 }
 
 // ---------- Reading a post ----------
@@ -814,7 +824,7 @@ function markRead(posts) {
     renderAll();
   });
 }
-$('#markAllBtn').addEventListener('click', () => markRead(postsForView()));
+$('#markAllBtn').addEventListener('click', () => markListRead(view));
 
 function toggleRead(id) {
   const nowRead = !isRead(id);
@@ -1220,9 +1230,9 @@ document.addEventListener('scroll', (e) => { if (e.target !== $('#menu')) closeM
 
 function feedMenu(feed) {
   if (!feed || addingFeeds.has(feed.id)) return null;
-  const posts = livePosts().filter((p) => p.feed === feed.id);
+  const v = 'feed:' + feed.id;
   const items = [
-    { label: 'Mark feed as read', icon: 'readall', disabled: !posts.some((p) => !isRead(p.id)), onClick: () => markRead(posts) },
+    { label: 'Mark feed as read', icon: 'readall', disabled: !canMarkRead(v), onClick: () => markListRead(v) },
     { label: 'Rename or change address', icon: 'edit', onClick: () => editFeed(feed) },
   ];
   if (webUrl(feed.site)) items.push({ label: 'Open website', icon: 'open', onClick: () => openLink(feed.site) });
@@ -1238,8 +1248,7 @@ function postMenu(post) {
 }
 function viewMenu(v) {
   if (v === 'bookmarks') return null;
-  const posts = v === 'unread' ? livePosts().filter((p) => !isRead(p.id)) : livePosts();
-  return [{ label: 'Mark all as read', icon: 'readall', disabled: !posts.some((p) => !isRead(p.id)), onClick: () => markRead(posts) }];
+  return [{ label: 'Mark all as read', icon: 'readall', disabled: !canMarkRead(v), onClick: () => markListRead(v) }];
 }
 function menuFor(el) {
   if (el.matches('.feed-list li')) return feedMenu(feedsById.get(el.dataset.feed));
