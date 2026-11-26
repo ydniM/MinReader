@@ -29,8 +29,12 @@ she asks.
   `key`, the queue is always re-read from localStorage before it's changed, saves take a
   Web Lock (`minreader-save`), and the `storage` event shows other tabs' changes.
 - Every GitHub request gives up after 30 seconds, since a phone can freeze one in the
-  background forever. Other devices' progress loads when the page comes back (and every
-  2 minutes) even with changes waiting; during a save it loads right after.
+  background forever. Other devices' progress loads every 30 seconds, and when the page or
+  its window comes back (`focus`, `visibilitychange`, `pageshow`), even with changes
+  waiting; during a save it loads right after.
+- Open tabs update themselves: `checkVersion` compares the `?v=` on Reader.js with the
+  published index.html, and `reloadIfUpdated` reloads when the page is left, or when it
+  comes back with no post open, once nothing is waiting to be saved.
 - The tap highlight is off (`-webkit-tap-highlight-color` on html), because post rows are
   focusable and Chrome flashed the whole row when a button in it was tapped.
 - `State.json` also holds `feedSort` and `feedOrder` (feed ids), so sorting syncs too.

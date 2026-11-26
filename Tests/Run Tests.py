@@ -811,6 +811,61 @@ def test_phone_sees_desktop_progress(browser):
     phone_ctx.close()
 
 
+def test_desktop_sees_phone_progress(browser):
+    """Read marks made on the phone show up on a computer whose window stayed on screen."""
+    api("reset", {})
+    ctx = new_context(browser)
+    desk = open_page(ctx)
+    desk.click('[data-view="unread"]')
+    ids = [post_id(desk, f"Garden post {n}") for n in (1, 2, 3)]
+    desk.wait_for_timeout(5500)  # past the 5-second limit on forced checks
+    # The phone saves them.
+    api("set", {"path": "State.json", "text": json.dumps({"read": {i: int(time.time()) for i in ids}, "bookmarks": {}})})
+    desk.evaluate("window.dispatchEvent(new Event('focus'))")
+    check("desktop sync: clicking back into the window shows the phone's read marks", wait_for(lambda: desk.evaluate(f"{json.dumps(ids)}.every(isRead)"), 5))
+    check("desktop sync: and they leave Unread", all(row(desk, f"Garden post {n}").count() == 0 for n in (1, 2, 3)))
+    more = post_id(desk, "Cozy post 1")
+    api("set", {"path": "State.json", "text": json.dumps({"read": {**{i: 1 for i in ids}, more: 1}, "bookmarks": {}})})
+    check("desktop sync: without any clicks it shows them within 45 seconds", wait_for(lambda: desk.evaluate(f"isRead('{more}')"), 45))
+    ctx.close()
+
+
+def test_desktop_new_version_reload(browser):
+    """An open tab picks up a newly published version at a quiet moment."""
+    api("reset", {})
+    ctx = new_context(browser)
+
+    def newer(route):
+        if route.request.resource_type == "fetch":  # the version check, not the page itself
+            html = route.fetch().text().replace("Reader.js?v=", "Reader.js?v=NEW")
+            route.fulfill(status=200, content_type="text/html", body=html)
+        else:
+            route.continue_()
+    page = open_page(ctx)
+    page.evaluate("window.marker = 1")
+    page.route("**/MinReader/index.html", newer)
+    page.evaluate("checkVersion()")
+    check("version: a newer published version is noticed", page.evaluate("newVersion"))
+    page.route("**/api/**", lambda route: route.abort())
+    page.evaluate(f"change({{op: 'read', ids: ['{post_id(page, 'Cozy post 1')}']}})")
+    page.evaluate("window.dispatchEvent(new Event('focus'))")
+    page.wait_for_timeout(800)
+    check("version: it waits while a change isn't saved yet", page.evaluate("window.marker") == 1)
+    page.unroute("**/api/**")
+    page.evaluate("saveNow()")
+    row(page, "Cozy post 2").click()
+    page.evaluate("window.dispatchEvent(new Event('focus'))")
+    page.wait_for_timeout(800)
+    check("version: it doesn't close the post you're reading", page.evaluate("window.marker") == 1)
+    page.evaluate("current = null")
+    wait_for(lambda: page.evaluate("!pending.length && !saving"), 10)
+    with page.expect_navigation():
+        page.evaluate("window.dispatchEvent(new Event('focus'))")
+    page.wait_for_selector(".post")
+    check("version: otherwise it reloads into the new version", page.evaluate("window.marker") is None)
+    ctx.close()
+
+
 # ---------- Run ----------
 
 def main():

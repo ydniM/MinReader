@@ -18,7 +18,7 @@ const REPO = DEV ? DEV.repo : decodeURIComponent(location.pathname.split('/')[1]
 const API = DEV ? DEV.api : 'https://api.github.com';
 const SAVE_DELAY = 4000;          // wait this long after a change before saving, so changes go in together
 const CHECK_POSTS_EVERY = 5 * 60e3;
-const CHECK_STATE_EVERY = 2 * 60e3;
+const CHECK_STATE_EVERY = 30e3;
 const PAGE_SIZE = 100;            // posts drawn at a time in the list
 
 // ---------- Small helpers ----------
@@ -1612,11 +1612,14 @@ async function saveFeedEdit(feed) {
 
 let lastPostsCheck = 0, lastStateCheck = 0;
 let stateWanted = false; // a progress check waited for a save to finish
+let lastForcedCheck = 0;
 function checkForUpdates(force) {
   if (document.hidden) return;
   const now = Date.now();
+  if (force && now - lastForcedCheck < 5e3) return; // clicking in and out of the post counts as focus too
+  if (force) lastForcedCheck = now;
   const postsEvery = now < fastCheckUntil ? 30e3 : CHECK_POSTS_EVERY;
-  if (force || now - lastPostsCheck > postsEvery) { lastPostsCheck = now; loadPosts(); }
+  if (force || now - lastPostsCheck > postsEvery) { lastPostsCheck = now; loadPosts(); checkVersion(); }
   // Other devices' progress loads even while this one has changes waiting,
   // since those are added back on top. During a save, it loads right after.
   if (force || now - lastStateCheck > CHECK_STATE_EVERY) {
@@ -1627,11 +1630,33 @@ function checkForUpdates(force) {
 setInterval(() => checkForUpdates(false), 15e3);
 setInterval(showUpdated, 60e3);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { if (pending.length) { clearTimeout(saveTimer); saveNow(); } }
-  else checkForUpdates(true);
+  if (document.hidden) { if (pending.length) { clearTimeout(saveTimer); saveNow(); } else reloadIfUpdated(); }
+  else if (!reloadIfUpdated(true)) checkForUpdates(true);
 });
+// Coming back to a window that stayed on screen (like after using the phone).
+window.addEventListener('focus', () => { if (!reloadIfUpdated(true)) checkForUpdates(true); });
 // Chrome can also bring back a page it kept in memory without reloading it.
-window.addEventListener('pageshow', (e) => { if (e.persisted) checkForUpdates(true); });
+window.addEventListener('pageshow', (e) => { if (e.persisted && !reloadIfUpdated(true)) checkForUpdates(true); });
+
+// A tab left open keeps running the version it loaded with, so it checks for a
+// newer one and reloads itself at a quiet moment: when you leave it, or when you
+// come back with no post open, and only once nothing is waiting to be saved.
+const myVersion = ((document.querySelector('script[src*="Reader.js"]') || {}).src || '').split('?v=')[1] || '';
+let newVersion = false;
+async function checkVersion() {
+  if (!myVersion || newVersion) return;
+  try {
+    const html = await (await fetch('index.html', { cache: 'no-store', signal: AbortSignal.timeout(30e3) })).text();
+    const v = (html.match(/Reader\.js\?v=([\w-]+)/) || [])[1];
+    if (v && v !== myVersion) newVersion = true;
+  } catch { /* offline: try again next time */ }
+}
+function reloadIfUpdated(comingBack) {
+  if (!newVersion || pending.length || saving || $('#modal').classList.contains('show')) return false;
+  if (comingBack && current) return false; // don't close the post you're reading
+  location.reload();
+  return true;
+}
 
 // ---------- Start ----------
 
