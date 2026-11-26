@@ -28,6 +28,11 @@ she asks.
   devices never overwrite each other. Open tabs share that one queue: each change has a
   `key`, the queue is always re-read from localStorage before it's changed, saves take a
   Web Lock (`minreader-save`), and the `storage` event shows other tabs' changes.
+- Every GitHub request gives up after 30 seconds, since a phone can freeze one in the
+  background forever. Other devices' progress loads when the page comes back (and every
+  2 minutes) even with changes waiting; during a save it loads right after.
+- The tap highlight is off (`-webkit-tap-highlight-color` on html), because post rows are
+  focusable and Chrome flashed the whole row when a button in it was tapped.
 - `State.json` also holds `feedSort` and `feedOrder` (feed ids), so sorting syncs too.
 - Editing a feed's address writes its old id into its `Feeds.json` entry (`"id"`), so its
   post ids, read marks and custom order position stay the same.

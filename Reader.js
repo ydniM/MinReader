@@ -94,6 +94,9 @@ async function gh(path, options = {}) {
   const res = await fetch(`${API}/repos/${OWNER}/${REPO}/${path}`, {
     ...options,
     cache: 'no-store',
+    // A phone can freeze a request when the app goes to the background, and it
+    // may never finish. Giving up after 30 seconds keeps saving and loading going.
+    signal: AbortSignal.timeout(30e3),
     headers: {
       Accept: options.raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json',
       Authorization: `Bearer ${token}`,
@@ -247,6 +250,7 @@ async function saveNow() {
   saving = false;
   showSync();
   if (pending.length && syncStatus === 'error') scheduleSave(30e3);
+  if (stateWanted) { stateWanted = false; loadState(); }
 }
 
 async function saveQueue() {
@@ -1607,12 +1611,18 @@ async function saveFeedEdit(feed) {
 // ---------- Keeping up to date ----------
 
 let lastPostsCheck = 0, lastStateCheck = 0;
+let stateWanted = false; // a progress check waited for a save to finish
 function checkForUpdates(force) {
   if (document.hidden) return;
   const now = Date.now();
   const postsEvery = now < fastCheckUntil ? 30e3 : CHECK_POSTS_EVERY;
   if (force || now - lastPostsCheck > postsEvery) { lastPostsCheck = now; loadPosts(); }
-  if ((force || now - lastStateCheck > CHECK_STATE_EVERY) && !saving && !pending.length) { lastStateCheck = now; loadState(); }
+  // Other devices' progress loads even while this one has changes waiting,
+  // since those are added back on top. During a save, it loads right after.
+  if (force || now - lastStateCheck > CHECK_STATE_EVERY) {
+    lastStateCheck = now;
+    if (saving) stateWanted = true; else loadState();
+  }
 }
 setInterval(() => checkForUpdates(false), 15e3);
 setInterval(showUpdated, 60e3);
@@ -1620,6 +1630,8 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) { if (pending.length) { clearTimeout(saveTimer); saveNow(); } }
   else checkForUpdates(true);
 });
+// Chrome can also bring back a page it kept in memory without reloading it.
+window.addEventListener('pageshow', (e) => { if (e.persisted) checkForUpdates(true); });
 
 // ---------- Start ----------
 

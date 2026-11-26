@@ -749,6 +749,8 @@ def test_phone_touch(browser):
     thumb_row = row(page, "Cozy post 1")
     check("phone: post buttons sit under the thumbnail too", thumb_row.locator(".post-actions").bounding_box()["y"] >=
           thumb_row.locator(".thumb").bounding_box()["y"] + thumb_row.locator(".thumb").bounding_box()["height"])
+    flash = page.evaluate("[document.querySelector('.post'), document.querySelector('.post-actions button')].map(e => getComputedStyle(e).webkitTapHighlightColor)")
+    check("phone: tapping a post's button doesn't flash the whole post", flash == ["rgba(0, 0, 0, 0)"] * 2, flash)
     touch_hold(page, r)
     check("phone: holding a post opens its menu", page.locator("#menu").is_visible())
     check("phone: and doesn't open the post", page.locator("#layout").get_attribute("data-pane") == "posts")
@@ -758,6 +760,55 @@ def test_phone_touch(browser):
     page.wait_for_timeout(200)
     check("phone: the feed list fits the screen width", page.evaluate("document.documentElement.scrollWidth") <= 412)
     ctx.close()
+
+
+def test_phone_sees_desktop_progress(browser):
+    """Read marks made on the computer show up on the phone when it comes back,
+    even if the phone's own save got stuck while it was in the background."""
+    api("reset", {})
+    desk_ctx = new_context(browser)
+    desk = open_page(desk_ctx)
+    phone_ctx = new_context(browser, phone=True)
+    phone = open_page(phone_ctx)
+    ids = [post_id(desk, f"Garden post {n}") for n in (1, 2, 3)]
+    mine = post_id(phone, "Cozy post 5")
+
+    # The phone's save hangs, like a request Android froze mid-way.
+    frozen = {"on": True, "held": []}
+
+    def freeze(route):
+        if frozen["on"] and route.request.method == "PUT":
+            frozen["held"].append(route)  # never answered
+        else:
+            route.continue_()
+    phone.route("**/api/**/contents/State.json", freeze)
+    phone.evaluate(f"change({{op: 'read', ids: ['{mine}']}}); renderAll()")
+    phone.evaluate("void saveNow()")
+    phone.wait_for_timeout(500)
+
+    # Meanwhile the computer marks three posts read and saves them.
+    desk.evaluate(f"change({{op: 'read', ids: {json.dumps(ids)}}}); void saveNow()")
+    check("phone sync: the computer's marks are saved", wait_for(lambda: all(i in remote_state().get("read", {}) for i in ids)))
+    frozen["on"] = False  # later requests work; the frozen one stays stuck
+
+    # The phone comes back to the front.
+    phone.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+    seen = wait_for(lambda: phone.evaluate(f"{json.dumps(ids)}.every(isRead)"), 45)
+    check("phone sync: coming back shows the computer's read marks, even after a stuck save", seen)
+    check("phone sync: and the phone's own mark is saved too", wait_for(lambda: phone.wait_for_timeout(1) or mine in remote_state().get("read", {}), 90))
+    check("phone sync: and nothing is lost", all(i in remote_state().get("read", {}) for i in ids))
+
+    # A phone whose save keeps failing still shows the computer's progress.
+    api("fail", {"statuses": [500]})
+    more = post_id(desk, "Big post 1")
+    phone.evaluate(f"change({{op: 'read', ids: ['{post_id(phone, 'Cozy post 4')}']}}); void saveNow()")
+    check("phone sync: the phone's save failed", wait_for(lambda: "Couldn" in phone.locator("#syncStatus").inner_text(), 8))
+    desk.evaluate(f"change({{op: 'read', ids: ['{more}']}}); void saveNow()")
+    check("phone sync: the computer saved again", wait_for(lambda: more in remote_state().get("read", {})))
+    phone.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+    check("phone sync: progress still loads while the phone has unsaved changes", wait_for(lambda: phone.evaluate(f"isRead('{more}')"), 10))
+    desk_ctx.close()
+    phone_ctx.close()
 
 
 # ---------- Run ----------
